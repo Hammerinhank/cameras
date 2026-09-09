@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.0.0</title>
+<title>CameraOnOff — v2.0.1</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1443,7 +1443,7 @@
   <button id="tab-btn-localisation"             onclick="showPage('localisation')">📍 Localisation</button>
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Installation<span id="tab-badge-installation" style="display:none">0</span></button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.0.0</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.0.1</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1745,8 +1745,14 @@
 "use strict";
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.0.0';
+window.APP_VERSION = '2.0.1';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.0.1', date: '09/09/2026',
+    resume: "Correction : l'onglet Installation restait blanc. Le greffon de navigation " +
+            "remettait style.display à '' au lieu de 'block', ce qui laissait la règle CSS " +
+            "#page-installation { display:none } masquer la page."
+  },
   {
     v: '2.0.0', date: '09/09/2026',
     resume: "Démarrage à froid : préflight des 5 dépendances, mode dégradé avec back-off, " +
@@ -2548,7 +2554,9 @@ function greffonNavigation() {
       ['tab-btn-cameras', 'tab-btn-localisation', 'tab-btn-parametrage'].forEach(function (id) {
         var e = document.getElementById(id); if (e) e.classList.remove('active');
       });
-      if (pInst) pInst.style.display = '';
+      // [v2.0.1] '' supprimerait le style en ligne et laisserait la règle CSS
+      // #page-installation { display:none } reprendre la main → page blanche.
+      if (pInst) pInst.style.display = 'block';
       if (bInst) bInst.classList.add('active');
       rendreInstallation();
       return;
