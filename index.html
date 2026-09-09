@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.0.1</title>
+<title>CameraOnOff — v2.1.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -393,7 +393,7 @@
    SUPERVISION v2.0.0 — bandeau, mode dégradé, onglet Installation
 ════════════════════════════════════════════ */
   /* ── Décalage des pages sous la barre d'onglets + bandeau ── */
-  #page-cameras, #page-localisation, #page-parametrage, #page-installation {
+  #page-cameras, #page-localisation, #page-parametrage, #page-installation, #page-log {
     padding-top: var(--decalage-haut, 44px) !important;
   }
 
@@ -541,6 +541,28 @@
     #version-btn { padding: 0 8px !important; font-size: 10px !important; }
     #preflight-banner { font-size: 12px; padding: 8px 10px; gap: 8px; }
   }
+
+  /* ── Page Log ── */
+  #page-log {
+    display: none;
+    background: #0e0f11; color: #e8eaf0; min-height: 100vh;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+  }
+  #page-log .log-wrap { max-width: 1100px; margin: 0 auto; padding: 22px 16px 40px; }
+  #page-log h2 { font-size: 19px; margin: 0 0 4px; }
+  #page-log .log-intro { color: #8b9198; font-size: 13px; margin-bottom: 14px; line-height: 1.5; }
+  #log-zone {
+    width: 100%; box-sizing: border-box; height: 58vh; min-height: 320px;
+    background: #0a0b0d; border: 1px solid #2a2d33; border-radius: 10px;
+    color: #cbd5e1; padding: 12px;
+    font-family: 'DM Mono', monospace; font-size: 11.5px; line-height: 1.65;
+    white-space: pre; overflow: auto; resize: vertical;
+  }
+  #log-zone:focus { outline: none; border-color: #60a5fa; }
+  .log-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 6px; }
+  .log-actions .inst-btn { margin: 0; }
+  #log-compteur { color: #8b9198; font-size: 12px; margin-left: auto; }
+  #log-etat { font-size: 12.5px; min-height: 18px; color: #8b9198; }
 
 </style>
 
@@ -1442,8 +1464,9 @@
   <button id="tab-btn-cameras"      class="active" onclick="showPage('cameras')">📷 Caméras Nest</button>
   <button id="tab-btn-localisation"             onclick="showPage('localisation')">📍 Localisation</button>
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
-  <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Installation<span id="tab-badge-installation" style="display:none">0</span></button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.0.1</button>
+  <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
+  <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.1.0</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1744,9 +1767,84 @@
 (function () {
 "use strict";
 
+/* ── 0. JOURNAL DE DIAGNOSTIC (onglet 📝 Log) ────────────────
+   Déclaré en tout premier : tout le reste du module peut l'appeler. */
+var LOGS = [];
+var LOG_MAX = 1500;
+
+function safeStr(o) {
+  if (typeof o === 'string') return o;
+  if (o instanceof Error) return o.message;
+  try { return JSON.stringify(o); } catch (e) { return String(o); }
+}
+
+function horodatage(d) {
+  function n2(x) { return (x < 10 ? '0' : '') + x; }
+  function n3(x) { return (x < 10 ? '00' : (x < 100 ? '0' : '')) + x; }
+  return n2(d.getHours()) + ':' + n2(d.getMinutes()) + ':' + n2(d.getSeconds()) + '.' + n3(d.getMilliseconds());
+}
+
+function LOG(categorie, message, extra) {
+  var ligne = horodatage(new Date()) + '  [' + categorie + '] ' + message +
+              (extra === undefined ? '' : ' — ' + safeStr(extra));
+  LOGS.push(ligne);
+  if (LOGS.length > LOG_MAX) LOGS.shift();
+  var z = document.getElementById('log-zone');
+  if (z) { z.value = LOGS.join('\n'); z.scrollTop = z.scrollHeight; }
+  return ligne;
+}
+window.LOG = LOG;
+
+/* Diagnostic complet d'un élément : la seule façon de savoir pourquoi
+   une page reste blanche (display ? visibility ? hauteur nulle ? vide ?). */
+function diagAffichage(id, quand) {
+  var el = document.getElementById(id);
+  if (!el) { LOG('AFFICH', id + ' [' + quand + '] : ÉLÉMENT INTROUVABLE dans le DOM'); return; }
+  var cs = null;
+  try { cs = window.getComputedStyle(el); } catch (e) {}
+  LOG('AFFICH', id + ' [' + quand + '] display=' + (cs ? cs.display : '?') +
+      ' visibility=' + (cs ? cs.visibility : '?') +
+      ' opacity=' + (cs ? cs.opacity : '?') +
+      ' hauteur=' + el.offsetHeight + 'px' +
+      ' styleEnLigne="' + (el.getAttribute('style') || '') + '"' +
+      ' contenu=' + el.innerHTML.length + ' car.');
+}
+window.diagAffichage = diagAffichage;
+
+/* Capture des erreurs JS et des rejets de promesses */
+window.addEventListener('error', function (e) {
+  LOG('ERREUR-JS', (e.message || '?') + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?') + ':' + (e.colno || '?'));
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason;
+  var m = (r && r.message) ? r.message : safeStr(r);
+  LOG(/mode dégradé|serveur 8585/.test(m) ? 'REJET-ATTENDU' : 'REJET', m);
+});
+
+/* Miroir de console.error / console.warn */
+(function () {
+  ['error', 'warn'].forEach(function (niveau) {
+    var origine = console[niveau];
+    console[niveau] = function () {
+      try {
+        LOG('console.' + niveau, Array.prototype.map.call(arguments, safeStr).join(' '));
+      } catch (e) {}
+      try { origine.apply(console, arguments); } catch (e) {}
+    };
+  });
+})();
+
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.0.1';
+window.APP_VERSION = '2.1.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.1.0', date: '09/09/2026',
+    resume: "Nouvel onglet 📝 Log : journal horodaté de tout ce que fait la page " +
+            "(navigation, préflight, erreurs JS, rejets de promesses, console), " +
+            "avec boutons Copier et Vider. Affichage de la page Installation forcé " +
+            "en display:block !important et diagnostic d'affichage journalisé " +
+            "avant/après chaque changement d'onglet."
+  },
   {
     v: '2.0.1', date: '09/09/2026',
     resume: "Correction : l'onglet Installation restait blanc. Le greffon de navigation " +
@@ -1985,6 +2083,7 @@ function majModeDegrade() {
 
 /* ── 9. Journal de supervision ─────────────────────────────── */
 function journalSup(msg, niveau) {
+  LOG('SUPERV', msg);
   journalSupervision.push({ t: new Date(), msg: msg, niveau: niveau || 'info' });
   if (journalSupervision.length > 200) journalSupervision.shift();
   var box = document.getElementById('inst-journal');
@@ -2117,6 +2216,7 @@ async function sonder(sonde) {
 }
 
 async function preflight() {
+  LOG('PREFLIGHT', 'démarrage du diagnostic des 5 dépendances');
   journalSup('── Préflight de démarrage ──────────────', 'info');
   var serveurVivant = false;
 
@@ -2205,7 +2305,7 @@ function majBandeau() {
       echapper(pbs.map(function (s) { return nomProbleme(s); }).join(' · ')) +
       (window.PARAMS_FIABLES ? '' : '<br><span class="pb-detail">Automatisation de présence désactivée tant que les coordonnées de laMaison ne sont pas connues.</span>') +
     '</div>' +
-    '<button class="pb-btn" onclick="showPage(\'installation\')">Marche à suivre →</button>';
+    '<button class="pb-btn" onclick="allerInstallation()">Marche à suivre →</button>';
   bandeau.style.display = 'flex';
   majDecalage();
 }
@@ -2238,7 +2338,8 @@ var COMMANDES = [
 
 function rendreInstallation() {
   var zone = document.getElementById('inst-contenu');
-  if (!zone) return;
+  if (!zone) { LOG('ERREUR', 'rendreInstallation : #inst-contenu introuvable'); return; }
+  LOG('RENDU', 'construction du panneau Installation…');
 
   var h = '';
 
@@ -2353,6 +2454,7 @@ function rendreInstallation() {
        '<div id="inst-journal" class="inst-journal"></div></div>';
 
   zone.innerHTML = h;
+  LOG('RENDU', 'panneau Installation injecté (' + h.length + ' caractères)');
   var box = document.getElementById('inst-journal');
   if (box) rendreJournal(box);
   genererJSON();
@@ -2541,38 +2643,149 @@ window.fermerVersions = function () {
 };
 
 /* ── 14. Navigation : greffe de l'onglet Installation ───────── */
+var PAGES_ORIGINE = ['page-cameras', 'page-localisation', 'page-parametrage'];
+var ONGLETS_ORIGINE = ['tab-btn-cameras', 'tab-btn-localisation', 'tab-btn-parametrage'];
+var PAGES_AJOUTEES = { installation: 'page-installation', log: 'page-log' };
+var ONGLETS_AJOUTES = { installation: 'tab-btn-installation', log: 'tab-btn-log' };
+
+function afficherPageAjoutee(nom) {
+  LOG('NAV', 'affichage de la page « ' + nom + ' »');
+  PAGES_ORIGINE.forEach(function (id) {
+    var e = document.getElementById(id);
+    if (e) e.style.display = 'none'; else LOG('NAV', 'page absente du DOM : ' + id);
+  });
+  ONGLETS_ORIGINE.forEach(function (id) {
+    var e = document.getElementById(id); if (e) e.classList.remove('active');
+  });
+  Object.keys(PAGES_AJOUTEES).forEach(function (cle) {
+    var e = document.getElementById(PAGES_AJOUTEES[cle]);
+    var b = document.getElementById(ONGLETS_AJOUTES[cle]);
+    if (cle === nom) {
+      if (e) {
+        // [v2.1.0] setProperty(..., 'important') : aucune règle CSS ne peut
+        // plus remasquer la page (en v2.0.0, style.display='' laissait la
+        // règle #page-installation{display:none} reprendre la main).
+        e.style.setProperty('display', 'block', 'important');
+      } else LOG('ERREUR', 'page introuvable : ' + PAGES_AJOUTEES[cle]);
+      if (b) b.classList.add('active'); else LOG('ERREUR', 'onglet introuvable : ' + ONGLETS_AJOUTES[cle]);
+    } else {
+      if (e) e.style.setProperty('display', 'none', 'important');
+      if (b) b.classList.remove('active');
+    }
+  });
+  diagAffichage(PAGES_AJOUTEES[nom], 'après affichage');
+}
+
 function greffonNavigation() {
   var orig = window.showPage;
-  if (typeof orig !== 'function') return;
+  LOG('BOOT', 'greffon de navigation — showPage d\'origine : ' + typeof orig);
+  if (typeof orig !== 'function') {
+    LOG('ERREUR', 'showPage introuvable : les onglets ajoutés ne fonctionneront pas');
+    return;
+  }
   window.showPage = function (nom) {
-    var pInst = document.getElementById('page-installation');
-    var bInst = document.getElementById('tab-btn-installation');
-    if (nom === 'installation') {
-      ['page-cameras', 'page-localisation', 'page-parametrage'].forEach(function (id) {
-        var e = document.getElementById(id); if (e) e.style.display = 'none';
+    LOG('NAV', 'showPage("' + nom + '") appelé');
+    try {
+      if (nom === 'installation' || nom === 'log') {
+        diagAffichage(PAGES_AJOUTEES[nom], 'avant affichage');
+        afficherPageAjoutee(nom);
+        if (nom === 'installation') {
+          try {
+            rendreInstallation();
+            LOG('NAV', 'rendreInstallation() terminé');
+          } catch (e) {
+            LOG('ERREUR', 'rendreInstallation() a échoué : ' + e.message,
+                (e.stack || '').split('\n').slice(0, 3).join(' | '));
+          }
+        } else {
+          rafraichirLog();
+        }
+        diagAffichage(PAGES_AJOUTEES[nom], 'fin de showPage');
+        return;
+      }
+      // Onglet d'origine : on masque les pages ajoutées et on rend la main
+      Object.keys(PAGES_AJOUTEES).forEach(function (cle) {
+        var e = document.getElementById(PAGES_AJOUTEES[cle]);
+        var b = document.getElementById(ONGLETS_AJOUTES[cle]);
+        if (e) e.style.setProperty('display', 'none', 'important');
+        if (b) b.classList.remove('active');
       });
-      ['tab-btn-cameras', 'tab-btn-localisation', 'tab-btn-parametrage'].forEach(function (id) {
-        var e = document.getElementById(id); if (e) e.classList.remove('active');
-      });
-      // [v2.0.1] '' supprimerait le style en ligne et laisserait la règle CSS
-      // #page-installation { display:none } reprendre la main → page blanche.
-      if (pInst) pInst.style.display = 'block';
-      if (bInst) bInst.classList.add('active');
-      rendreInstallation();
-      return;
+      var r = orig.apply(this, arguments);
+      LOG('NAV', 'showPage d\'origine exécuté pour « ' + nom + ' »');
+      return r;
+    } catch (e) {
+      LOG('ERREUR', 'showPage("' + nom + '") a levé : ' + e.message,
+          (e.stack || '').split('\n').slice(0, 3).join(' | '));
     }
-    if (pInst) pInst.style.display = 'none';
-    if (bInst) bInst.classList.remove('active');
-    return orig.apply(this, arguments);
   };
+  LOG('BOOT', 'greffon de navigation installé');
 }
+
+/* Bouton « Marche à suivre » du bandeau — tracé séparément pour savoir
+   si le clic atteint bien le code. */
+window.allerInstallation = function () {
+  LOG('CLIC', 'bouton « Marche à suivre → » cliqué');
+  try { window.showPage('installation'); }
+  catch (e) { LOG('ERREUR', 'showPage a levé depuis le bandeau : ' + e.message); }
+};
+
+/* ── Onglet Log : rendu, copie, vidage ─────────────────────── */
+function rafraichirLog() {
+  var z = document.getElementById('log-zone');
+  if (!z) { LOG('ERREUR', 'zone de log introuvable'); return; }
+  z.value = LOGS.join('\n');
+  z.scrollTop = z.scrollHeight;
+  var c = document.getElementById('log-compteur');
+  if (c) c.textContent = LOGS.length + ' ligne(s)';
+}
+window.rafraichirLog = rafraichirLog;
+
+window.copierLog = function () {
+  var z = document.getElementById('log-zone');
+  if (!z) return;
+  var etat = document.getElementById('log-etat');
+  function ok() { if (etat) { etat.style.color = '#22c55e'; etat.textContent = '✅ Journal copié dans le presse-papiers'; } }
+  function repli() {
+    try {
+      z.removeAttribute('readonly');
+      z.focus(); z.select(); z.setSelectionRange(0, z.value.length);
+      var r = document.execCommand('copy');
+      z.setAttribute('readonly', 'readonly');
+      if (r) ok();
+      else if (etat) { etat.style.color = '#f59e0b'; etat.textContent = '⚠️ Copie automatique refusée — le texte est sélectionné, faites ⌘C'; }
+    } catch (e) {
+      if (etat) { etat.style.color = '#ef4444'; etat.textContent = '❌ Copie impossible : ' + e.message; }
+    }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(z.value).then(ok, repli);
+  } else repli();
+};
+
+window.viderLog = function () {
+  LOGS.length = 0;
+  LOG('LOG', 'journal vidé — v' + window.APP_VERSION);
+  rafraichirLog();
+  var etat = document.getElementById('log-etat');
+  if (etat) { etat.style.color = '#8b9198'; etat.textContent = 'Journal vidé.'; }
+};
 
 /* ── 15. Démarrage ─────────────────────────────────────────── */
 function demarrer() {
+  LOG('BOOT', '════ cameras.html v' + window.APP_VERSION + ' ════');
+  LOG('BOOT', 'URL : ' + window.location.href);
+  LOG('BOOT', 'Cible API : ' + BASE);
+  LOG('BOOT', 'Navigateur : ' + navigator.userAgent);
+  LOG('BOOT', 'readyState : ' + document.readyState);
+  ['tab-btn-installation', 'tab-btn-log', 'page-installation', 'page-log',
+   'inst-contenu', 'log-zone', 'preflight-banner', 'version-btn'].forEach(function (id) {
+    LOG('BOOT', 'élément ' + id + ' : ' + (document.getElementById(id) ? 'présent' : 'ABSENT'));
+  });
   var btn = document.getElementById('version-btn');
   if (btn) btn.textContent = 'v' + window.APP_VERSION;
   greffonNavigation();
   majDecalage();
+  rafraichirLog();
   preflight();
 }
 
@@ -6302,6 +6515,28 @@ ${textePositions(positions2)}`;
       lancer, et génère les fichiers de configuration à déposer sur l'iMac.
     </div>
     <div id="inst-contenu"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE 5 — Journal de diagnostic (v2.1.0)
+════════════════════════════════════════════ -->
+<div id="page-log">
+  <div class="log-wrap">
+    <h2>📝 Journal de diagnostic</h2>
+    <div class="log-intro">
+      Tout ce que fait la page, horodaté : navigation entre onglets, diagnostic d'affichage
+      (display / visibilité / hauteur réelle), préflight, erreurs JavaScript, rejets de promesses
+      et messages de la console. Copiez le contenu pour me le transmettre.
+    </div>
+    <div class="log-actions">
+      <button class="inst-btn" onclick="copierLog()">📋 Copier le journal</button>
+      <button class="inst-btn" onclick="viderLog()">🗑 Vider</button>
+      <button class="inst-btn" onclick="rafraichirLog()">🔄 Rafraîchir</button>
+      <span id="log-compteur">0 ligne(s)</span>
+    </div>
+    <textarea id="log-zone" readonly spellcheck="false"></textarea>
+    <div id="log-etat"></div>
   </div>
 </div>
 
