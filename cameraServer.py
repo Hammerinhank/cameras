@@ -33,7 +33,52 @@ from selenium.webdriver.common.keys import Keys
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+#  VERSION DU SERVEUR — à incrémenter à chaque modification.
+#  Exposée par /version et /sante, affichée au démarrage et renvoyée
+#  dans /status (le dashboard peut ainsi vérifier qu'il parle bien
+#  à la version de serveur qu'il attend).
+# ═══════════════════════════════════════════════════════════════
+VERSION_SERVEUR = "1.1.0"
+HISTORIQUE_VERSIONS = [
+    ("1.1.0", "09/09/2026",
+     "Dashboard renommé cameras.html (CameraOnOff.html reste accepté) ; "
+     "service statique généralisé au dossier du script ; en-têtes CORS et "
+     "no-store sur toutes les réponses ; 404 explicite listant les routes ; "
+     "toute exception d'un handler renvoie un 500 JSON tracé au lieu de "
+     "couper la connexion ; routes /version et /sante ; bannière de démarrage "
+     "affichant le bon schéma (https quand le certificat Tailscale est là) ; "
+     "arrêt propre sur SIGTERM/SIGINT ; options --foreground, --port, --version."),
+    ("1.0.0", "avant 09/09/2026",
+     "Version initiale : contrôle Selenium des caméras Nest, file d'attente de "
+     "basculement, diagnostic par caméra, modes proximité et actualisation, "
+     "proxy /loc/* vers localisation.py, notifications Telegram, HTTPS Tailscale."),
+]
+
+DEMARRAGE_TS = time.time()
+
 PORT = 8585
+
+# ── Dashboard servi à la racine ──────────────────────────────────
+# cameras.html est le nom courant ; CameraOnOff.html est l'ancien nom,
+# conservé en repli pour ne rien casser si le renommage n'est pas fait.
+DASHBOARD_CANDIDATS = ["cameras.html", "CameraOnOff.html"]
+
+def fichier_dashboard():
+    """Retourne le chemin du dashboard réellement présent, ou None."""
+    for nom in DASHBOARD_CANDIDATS:
+        p = Path(__file__).parent / nom
+        if p.exists():
+            return p
+    return None
+
+# ── Certificat Tailscale : détecté AVANT la daemonisation pour que la
+#    bannière annonce le bon schéma (une URL http:// alors que le serveur
+#    écoute en TLS donne un ERR_CONNECTION_RESET très déroutant). ──
+CERT_FILE = Path("/var/db/tailscale/imactavernier-2.tail78c299.ts.net.crt")
+KEY_FILE  = Path("/var/db/tailscale/imactavernier-2.tail78c299.ts.net.key")
+HTTPS_ACTIF = CERT_FILE.exists() and KEY_FILE.exists()
+SCHEMA = "https" if HTTPS_ACTIF else "http"
 
 NOMS_CAMERAS = [
     "Caméra - Terrasse",
@@ -1012,7 +1057,7 @@ def tester_camera(nom):
                     {"type": "instruction",
                      "label": f"Vérifier que la caméra s'appelle toujours exactement « {nom} ». "
                               "Si son nom a changé, mettre à jour NOMS_CAMERAS dans cameraServer.py "
-                              "et CAMERAS dans CameraOnOff.html."},
+                              "et CAMERAS dans cameras.html."},
                     {"type": "retest", "label": "Relancer le test"},
                 ],
             ))
@@ -1248,36 +1293,136 @@ class Handler(BaseHTTPRequestHandler):
         if not any(self.path.startswith(r) for r in routes_silencieuses):
             log(f"→ {self.command} {self.path} [{code}] {duree_ms}ms — {client}")
 
+    # ── En-têtes communs à TOUTES les réponses ──────────────────
+    # CORS : indispensable si la page est ouverte en file:// (origine "null")
+    #        ou depuis GitHub Pages.
+    # no-store : sans cela, le navigateur ressert un cameras.html périmé
+    #            après un redéploiement, ce qui fait perdre un temps fou.
+    def _entetes_communs(self, mime, taille):
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(taille))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("X-Camera-Server-Version", VERSION_SERVEUR)
+
     def send_json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._entetes_communs("application/json; charset=utf-8", len(body))
         self.end_headers()
         self.wfile.write(body)
 
-    def send_file(self, path, mime):
+    MIMES = {
+        ".html": "text/html; charset=utf-8",
+        ".css":  "text/css; charset=utf-8",
+        ".js":   "application/javascript; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".txt":  "text/plain; charset=utf-8",
+        ".png":  "image/png",
+        ".jpg":  "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif":  "image/gif",
+        ".svg":  "image/svg+xml",
+        ".ico":  "image/x-icon",
+        ".webmanifest": "application/manifest+json",
+    }
+
+    def send_file(self, path, mime=None):
         try:
+            path = Path(path)
             with open(path, "rb") as f:
                 body = f.read()
+            if mime is None:
+                mime = self.MIMES.get(path.suffix.lower(), "application/octet-stream")
             self.send_response(200)
-            self.send_header("Content-Type", mime)
-            self.send_header("Content-Length", str(len(body)))
+            self._entetes_communs(mime, len(body))
             self.end_headers()
             self.wfile.write(body)
         except FileNotFoundError:
-            self.send_response(404)
-            self.end_headers()
+            self.send_404("Fichier introuvable : %s" % path)
+
+    def servir_statique(self):
+        """Sert un fichier du dossier du script (extensions autorisées
+        uniquement, et aucune remontée de répertoire possible)."""
+        nom = self.path.split("?")[0].lstrip("/")
+        if not nom or "/" in nom or "\\" in nom or nom.startswith("."):
+            return False
+        chemin = (Path(__file__).parent / nom).resolve()
+        racine = Path(__file__).parent.resolve()
+        if racine not in chemin.parents or not chemin.is_file():
+            return False
+        if chemin.suffix.lower() not in self.MIMES:
+            return False
+        self.send_file(chemin)
+        return True
+
+    ROUTES_CONNUES = {
+        "GET":  ["/", "/index.html", "/cameras.html", "/status", "/logs", "/refresh",
+                 "/debug-status", "/proximite-status", "/actualisation-status",
+                 "/server-countdown", "/version", "/sante", "/loc/<route localisation.py>"],
+        "POST": ["/toggle", "/test-camera", "/debug", "/clear-logs", "/send-telegram",
+                 "/proximite-config", "/actualisation-config", "/loc/<route localisation.py>"],
+    }
+
+    def send_404(self, detail=""):
+        """404 explicite : sans corps, un onglet vide n'apprend rien."""
+        log(f"⚠️  404 {self.command} {self.path} — {detail or 'route inconnue'}")
+        self.send_json({
+            "ok": False,
+            "erreur": "route inconnue",
+            "detail": detail,
+            "methode": self.command,
+            "chemin": self.path,
+            "routes_disponibles": self.ROUTES_CONNUES.get(self.command, []),
+            "version_serveur": VERSION_SERVEUR,
+        }, 404)
+
+    def send_500(self, exc):
+        import traceback
+        trace = traceback.format_exc()
+        log(f"❌ Exception sur {self.command} {self.path} : {exc}")
+        for ligne in trace.strip().split("\n")[-4:]:
+            log(f"   {ligne}")
+        try:
+            self.send_json({"ok": False, "erreur": str(exc),
+                            "chemin": self.path,
+                            "version_serveur": VERSION_SERVEUR}, 500)
+        except Exception:
+            pass   # connexion déjà fermée côté client
 
     def do_GET(self):
+        """Enveloppe : toute exception non rattrapée devenait une connexion
+        coupée côté navigateur (ERR_CONNECTION_RESET / ERR_EMPTY_RESPONSE),
+        impossible à diagnostiquer. On renvoie désormais un 500 tracé."""
         self._t0 = time.time()
+        try:
+            self._get_interne()
+        except BrokenPipeError:
+            pass                       # le client a fermé l'onglet : normal
+        except Exception as e:
+            self.send_500(e)
+
+    def _get_interne(self):
         global camera_busy
-        if self.path in ("/", "/index.html", "/CameraOnOff.html"):
-            self.send_file(
-                Path(__file__).parent / "CameraOnOff.html",
-                "text/html; charset=utf-8"
-            )
+        chemin = self.path.split("?")[0]
+
+        if chemin in ("/", "/index.html", "/cameras.html", "/CameraOnOff.html"):
+            dash = fichier_dashboard()
+            if dash is None:
+                self.send_404("aucun dashboard trouvé dans %s (attendu : %s)"
+                              % (Path(__file__).parent, " ou ".join(DASHBOARD_CANDIDATS)))
+            else:
+                self.send_file(dash, "text/html; charset=utf-8")
+
+        elif chemin == "/version":
+            self.send_json({
+                "version": VERSION_SERVEUR,
+                "historique": [{"version": v, "date": d, "resume": r}
+                               for v, d, r in HISTORIQUE_VERSIONS],
+            })
+
+        elif chemin == "/sante":
+            self.send_json(self._sante())
 
         elif self.path == "/status":
             with camera_lock:
@@ -1291,7 +1436,8 @@ class Handler(BaseHTTPRequestHandler):
                 actions = dict(camera_derniere_action)
                 diagnostics = dict(camera_diagnostic)
             self.send_json({"cameras": statuts, "erreurs": erreurs, "busy": busy,
-                            "actions": actions, "diagnostics": diagnostics})
+                            "actions": actions, "diagnostics": diagnostics,
+                            "version_serveur": VERSION_SERVEUR})
 
         elif self.path == "/logs":
             with log_lock:
@@ -1373,12 +1519,77 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "erreur": str(e)}, 502)
         # ── [FIN AJOUT PROXY] ──
 
+        # Tout autre fichier du dossier (leaflet local, icône, manifeste…)
+        elif self.servir_statique():
+            pass
+
         else:
-            self.send_response(404)
-            self.end_headers()
+            self.send_404()
+
+    # ═══════════════════════════════════════════════════════════
+    #  BILAN DE SANTÉ — une seule requête pour tout savoir
+    # ═══════════════════════════════════════════════════════════
+    def _sante(self):
+        dossier = Path(__file__).parent
+        dash = fichier_dashboard()
+
+        # localisation.py (port 8282) répond-il ?
+        loc_etat, loc_detail = "injoignable", ""
+        try:
+            with urllib.request.urlopen("http://localhost:8282/distances", timeout=3) as r:
+                loc_etat = "ok" if r.status == 200 else f"HTTP {r.status}"
+        except Exception as e:
+            loc_detail = str(e)
+
+        fichiers = {}
+        for nom in ("localisationParam.json", "historique_positions.json",
+                    "coordonnees.txt", "historique_cameras.json",
+                    "localisation.py", "cameraControl.py"):
+            p = dossier / nom
+            fichiers[nom] = {"present": p.exists(),
+                             "octets": (p.stat().st_size if p.exists() else 0)}
+        fichiers["chrome_profile/"] = {"present": (dossier / "chrome_profile").is_dir(),
+                                       "octets": 0}
+
+        with camera_lock:
+            etats = {n: ("on" if v is True else ("off" if v is False else "unknown"))
+                     for n, v in camera_status.items()}
+            occupe = camera_busy
+
+        uptime = int(time.time() - DEMARRAGE_TS)
+        return {
+            "ok": True,
+            "version_serveur": VERSION_SERVEUR,
+            "pid": os.getpid(),
+            "port": PORT,
+            "schema": SCHEMA,
+            "https": HTTPS_ACTIF,
+            "uptime_s": uptime,
+            "uptime_lisible": f"{uptime // 3600} h {(uptime % 3600) // 60} min {uptime % 60} s",
+            "dossier": str(dossier),
+            "dashboard_servi": (dash.name if dash else None),
+            "cameras": etats,
+            "camera_busy": occupe,
+            "file_attente": toggle_queue.qsize() if 'toggle_queue' in globals() else None,
+            "threads_actifs": threading.active_count(),
+            "debug_mode": debug_mode,
+            "mode_proximite": proximite_mode_serveur,
+            "mode_actualisation": actualisation_mode_serveur,
+            "localisation_py": {"etat": loc_etat, "detail": loc_detail, "port": 8282},
+            "fichiers": fichiers,
+            "lignes_log": len(log_buffer),
+        }
 
     def do_POST(self):
         self._t0 = time.time()
+        try:
+            self._post_interne()
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            self.send_500(e)
+
+    def _post_interne(self):
         global camera_busy, debug_mode
         if self.path == "/send-telegram":
             length = int(self.headers.get("Content-Length", 0))
@@ -1537,8 +1748,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── [FIN AJOUT PROXY] ──
 
         else:
-            self.send_response(404)
-            self.end_headers()
+            self.send_404()
 
     def do_OPTIONS(self):
         """Répond aux preflight CORS (identique à localisation.py)."""
@@ -1560,18 +1770,26 @@ def daemoniser():
     pid = os.fork()
     if pid > 0:
         # Parent : affiche l'URL et quitte immédiatement
-        print(f"\n{'═'*52}")
-        print(f"  📷  Nest Camera Dashboard démarré")
-        print(f"  🌐  http://localhost:{PORT}")
+        dash = fichier_dashboard()
+        print(f"\n{'═'*62}")
+        print(f"  📷  Nest Camera Dashboard — serveur v{VERSION_SERVEUR}")
+        print(f"  🔐  {'HTTPS (certificat Tailscale)' if HTTPS_ACTIF else 'HTTP non chiffré'}")
+        print(f"  🌐  {SCHEMA}://localhost:{PORT}/")
         try:
             import socket
             hostname = socket.gethostname().split(".")[0]
-            print(f"  🌐  http://{hostname}.local:{PORT}")
+            print(f"  🌐  {SCHEMA}://{hostname}.local:{PORT}/")
         except Exception:
             pass
-        print(f"  📋  Logs visibles dans la page HTML")
-        print(f"  ⚙️   PID : {pid}")
-        print(f"{'═'*52}\n")
+        if HTTPS_ACTIF:
+            print(f"  🌐  https://{CERT_FILE.stem}:{PORT}/   ← via Tailscale")
+            print(f"  ⚠️   Le serveur écoute en TLS : une URL http:// donnera")
+            print(f"      ERR_CONNECTION_RESET. Utilisez bien https://")
+        print(f"  📄  Dashboard servi : {dash.name if dash else '❌ AUCUN (' + ' ou '.join(DASHBOARD_CANDIDATS) + ' attendu)'}")
+        print(f"  🩺  Bilan de santé : {SCHEMA}://localhost:{PORT}/sante")
+        print(f"  📋  Logs : page HTML, ou {SCHEMA}://localhost:{PORT}/logs")
+        print(f"  ⚙️   PID : {pid}   ·   arrêt : kill {pid}")
+        print(f"{'═'*62}\n")
         sys.exit(0)
 
     # Premier enfant : créer une nouvelle session (détacher du terminal)
@@ -1597,14 +1815,47 @@ def daemoniser():
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # ── Options de ligne de commande ─────────────────────────────
+    #   --version      affiche la version et quitte
+    #   --foreground   reste au premier plan (logs dans le terminal, Ctrl-C
+    #                  pour arrêter) : indispensable pour déboguer
+    #   --port N       écoute sur un autre port
+    args = sys.argv[1:]
+    if "--version" in args or "-v" in args:
+        print(f"cameraServer.py v{VERSION_SERVEUR}")
+        for v, d, r in HISTORIQUE_VERSIONS:
+            print(f"  v{v} ({d}) — {r}")
+        sys.exit(0)
+    if "--aide" in args or "--help" in args or "-h" in args:
+        print("Usage : python3.13 cameraServer.py [--foreground] [--port N] [--version]")
+        sys.exit(0)
+    PREMIER_PLAN = "--foreground" in args or "--fg" in args
+    if "--port" in args:
+        try:
+            PORT = int(args[args.index("--port") + 1])
+        except (IndexError, ValueError):
+            print("❌ --port attend un numéro de port"); sys.exit(1)
+
     profil_dir = Path(__file__).parent / "chrome_profile"
     if not profil_dir.exists():
         print("❌ Aucune session Google trouvée.")
         print("   Lance d'abord : python3.13 cameraControl.py --setup")
         sys.exit(1)
 
-    # Passer en background (le terminal est libéré immédiatement)
-    daemoniser()
+    if fichier_dashboard() is None:
+        print(f"⚠️  Aucun dashboard trouvé dans {Path(__file__).parent}")
+        print(f"   Attendu : {' ou '.join(DASHBOARD_CANDIDATS)}")
+        print("   Le serveur démarre quand même : l'API répondra, mais la racine renverra 404.")
+
+    # Passer en background (le terminal est libéré immédiatement),
+    # sauf en --foreground où l'on garde les logs sous les yeux.
+    if PREMIER_PLAN:
+        print(f"\n{'═'*62}")
+        print(f"  📷  Nest Camera Dashboard v{VERSION_SERVEUR} — PREMIER PLAN")
+        print(f"  🌐  {SCHEMA}://localhost:{PORT}/   ·   Ctrl-C pour arrêter")
+        print(f"{'═'*62}\n")
+    else:
+        daemoniser()
 
     # ── À partir d'ici : process background uniquement ──
 
@@ -1636,10 +1887,7 @@ if __name__ == "__main__":
     # TOUTES les autres requêtes, y compris le polling /status et /logs du dashboard.
     # L'état partagé (camera_status, camera_busy, log_buffer...) est déjà protégé par
     # des threading.Lock() dédiés, donc le passage au multi-thread est sûr.
-    CERT_FILE = Path("/var/db/tailscale/imactavernier-2.tail78c299.ts.net.crt")
-    KEY_FILE  = Path("/var/db/tailscale/imactavernier-2.tail78c299.ts.net.key")
-
-    if CERT_FILE.exists() and KEY_FILE.exists():
+    if HTTPS_ACTIF:
         # Créer le contexte SSL AVANT d'instancier HTTPServer
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(str(CERT_FILE), str(KEY_FILE))
@@ -1655,8 +1903,32 @@ if __name__ == "__main__":
         server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
         log(f"⚠️ Certificat Tailscale non trouvé — HTTP non chiffré (multi-thread)")
 
-    log(f"Serveur démarré sur le port {PORT}")
+    log(f"🚀 cameraServer.py v{VERSION_SERVEUR} démarré — {SCHEMA}://localhost:{PORT}/ "
+        f"(PID {os.getpid()}, dashboard : {fichier_dashboard().name if fichier_dashboard() else 'aucun'})")
+
+    # ── Arrêt propre : sans cela, un kill laissait le port occupé quelques
+    #    secondes et la relance échouait avec « Address already in use ». ──
+    import signal
+
+    def _arret(signum, frame):
+        log(f"🛑 Signal {signum} reçu — arrêt du serveur")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _arret)
+        except (ValueError, OSError):
+            pass
+
     try:
         server.serve_forever()
+    except KeyboardInterrupt:
+        log("🛑 Interruption clavier — arrêt du serveur")
     except Exception as e:
-        log(f"Serveur arrêté : {e}")
+        log(f"❌ Serveur arrêté sur erreur : {e}")
+    finally:
+        try:
+            server.server_close()
+            log("✅ Port libéré proprement")
+        except Exception:
+            pass
