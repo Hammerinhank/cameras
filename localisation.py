@@ -12,6 +12,31 @@ import ssl
 FICHIER_COORDONNEES = "coordonnees.txt"   # une URL par ligne (lignes vides et # ignorées)
 FICHIER_JSON = "historique_positions.json"
 FICHIER_PARAM = "localisationParam.json"
+# ═══════════════════════════════════════════════════════════════
+#  VERSION DU SERVEUR DE LOCALISATION — à incrémenter à chaque
+#  modification. Exposée par /version et /sante, affichée au
+#  démarrage, et renvoyée dans /distances et /preferences pour que
+#  le dashboard puisse vérifier à quelle version il parle.
+# ═══════════════════════════════════════════════════════════════
+VERSION_LOCALISATION = "1.1.0"
+HISTORIQUE_VERSIONS = [
+    ("1.1.0", "09/09/2026",
+     "Les onze routes étaient comparées à self.path, chaîne de requête "
+     "comprise : un appel /distances?t=123 tombait dans le 404 muet. La "
+     "comparaison porte désormais sur le chemin seul. Ajout : routes /version "
+     "et /sante, 404 explicite listant les routes disponibles, 500 tracé au "
+     "lieu d'une connexion coupée, en-tête no-store sur les réponses JSON, "
+     "bannière de démarrage annonçant les vraies adresses (HTTP sur 127.0.0.1 "
+     "uniquement, HTTPS sur 8283), arrêt propre libérant les ports, options "
+     "--foreground et --version."),
+    ("1.0.0", "avant 09/09/2026",
+     "Version initiale : lecture périodique des positions GPS depuis GitHub, "
+     "historique JSON, distances, périodes, préférences, nettoyage, saisie "
+     "manuelle, serveurs HTTP (8282) et HTTPS Tailscale (8283) multi-threads."),
+]
+
+DEMARRAGE_TS = time.time()
+
 PORT_SERVEUR = 8282
 PERIOD_DEFAUT_MIN = 60
 
@@ -355,9 +380,39 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        """Servir les fichiers statiques avec le header CORS."""
+        """Enveloppe : une exception non rattrapée coupait la connexion
+        (ERR_EMPTY_RESPONSE côté navigateur, 502 opaque côté proxy), sans
+        rien laisser d'exploitable. On renvoie désormais un 500 tracé."""
+        try:
+            self._get_interne()
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            self.envoyer_500(e)
+
+    def _get_interne(self):
+        """Servir les fichiers statiques avec le header CORS.
+
+        [v1.1.0] chemin = self.path SANS la chaîne de requête. Toutes les
+        comparaisons portent dessus : « /distances?t=123 » ne correspondait
+        à aucune route et retombait dans le 404 muet, ce qui faisait croire
+        que le processus était absent."""
+        chemin = self.path.split("?")[0]
+
+        if chemin == "/version":
+            self.renvoyer_json(json.dumps({
+                "version": VERSION_LOCALISATION,
+                "historique": [{"version": v, "date": d, "resume": r}
+                               for v, d, r in HISTORIQUE_VERSIONS],
+            }).encode("utf-8"))
+            return
+
+        if chemin == "/sante":
+            self.renvoyer_json(json.dumps(self._sante(), ensure_ascii=False).encode("utf-8"))
+            return
+
         # ── [AJOUT MODE SERVEUR] ── Route /position pour cameraServer.py ──
-        if self.path == "/position":
+        if chemin == "/position":
             derniere = _derniere_position()
             if derniere:
                 corps = json.dumps(derniere).encode("utf-8")
@@ -366,7 +421,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.renvoyer_json(corps)
             return
 
-        if self.path == "/coordonnees":
+        if chemin == "/coordonnees":
             urls = lire_urls_coordonnees()
             corps = json.dumps({
                 "ok": True,
@@ -376,7 +431,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.renvoyer_json(corps)
             return
 
-        if self.path == "/periode":
+        if chemin == "/periode":
             corps = json.dumps({
                 "ok": True,
                 "period": PARAMETRES.get("period", PERIOD_DEFAUT_MIN),
@@ -385,14 +440,15 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             return
 
         # ── Route /distances ──────────────────────────────────────────────
-        if self.path == "/distances":
+        if chemin == "/distances":
             distances = charger_distances()
-            corps = json.dumps({"ok": True, "distances": distances}).encode("utf-8")
+            corps = json.dumps({"ok": True, "distances": distances,
+                                "version_localisation": VERSION_LOCALISATION}).encode("utf-8")
             self.renvoyer_json(corps)
             return
 
         # ── [AJOUT] ── Préférences génériques du dashboard HTML ──
-        if self.path == "/preferences":
+        if chemin == "/preferences":
             dashboard = charger_preferences_dashboard()
             corps = json.dumps({
                 "ok": True,
@@ -402,6 +458,13 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             return
         # ── [FIN AJOUT] ──
         # ── [FIN AJOUT] ────────────────────────────────────────────────────
+        # Fichier statique : on vérifie son existence pour renvoyer un 404 JSON
+        # exploitable plutôt que la page HTML de SimpleHTTPRequestHandler, que
+        # le proxy et le dashboard ne savent pas interpréter.
+        cible = self.translate_path(self.path)
+        if not (os.path.isfile(cible) or os.path.isdir(cible)):
+            self.envoyer_404(f"aucune route ni fichier « {chemin} »")
+            return
         super().do_GET()
         # Note : SimpleHTTPRequestHandler écrit les headers lui-même ;
         # on ne peut pas les injecter après coup via super().
@@ -413,7 +476,16 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_POST(self):
-        if self.path == "/nettoyer":
+        try:
+            self._post_interne()
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            self.envoyer_500(e)
+
+    def _post_interne(self):
+        chemin = self.path.split("?")[0]
+        if chemin == "/nettoyer":
             seuil = int(charger_distances().get("nettoyage_seuil_m", 500))
             nb_avant, nb_apres = nettoyer_historique(seuil_m=seuil)
             supprimes = nb_avant - nb_apres
@@ -426,7 +498,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.renvoyer_json(corps)
             print(f"[Nettoyage] {supprimes} enregistrement(s) supprimé(s) ({nb_avant} → {nb_apres}) — seuil={seuil} m")
             
-        elif self.path == "/actualiser":
+        elif chemin == "/actualiser":
             # [MODIFIÉ] On ne lit plus GitHub directement depuis ce thread HTTP :
             # on réveille la boucle principale (celle qui gère le délai `period`)
             # pour qu'elle fasse la lecture elle-même. Cela évite toute lecture
@@ -450,7 +522,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             corps = json.dumps({"ok": True, "message": message}).encode("utf-8")
             self.renvoyer_json(corps)
         
-        elif self.path == "/saisie_manuelle":
+        elif chemin == "/saisie_manuelle":
             longueur = int(self.headers.get('Content-Length', 0))
             corps_brut = self.rfile.read(longueur)
             try:
@@ -462,7 +534,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
                 rep = json.dumps({"ok": False, "erreur": str(e)}).encode("utf-8")
             self.renvoyer_json(rep)
         
-        elif self.path == "/periode":
+        elif chemin == "/periode":
             longueur = int(self.headers.get('Content-Length', 0))
             corps_brut = self.rfile.read(longueur)
             print(f"[Période] Requête POST reçue ({longueur} octet(s)) : {corps_brut!r}")
@@ -481,7 +553,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.renvoyer_json(rep)
 
         # ── [AJOUT] ── Préférences génériques du dashboard HTML ──
-        elif self.path == "/preferences":
+        elif chemin == "/preferences":
             longueur = int(self.headers.get('Content-Length', 0))
             corps_brut = self.rfile.read(longueur)
             try:
@@ -497,7 +569,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         # ── [FIN AJOUT] ──
 
         # ── Route /distances ──────────────────────────────────────────────
-        elif self.path == "/distances":
+        elif chemin == "/distances":
             longueur = int(self.headers.get('Content-Length', 0))
             corps_brut = self.rfile.read(longueur)
             try:
@@ -513,20 +585,112 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.renvoyer_json(rep)
 
         else:
-            self.send_response(404)
-            self.end_headers()
+            self.envoyer_404()
 
-    def renvoyer_json(self, corps):
-        """Méthode utilitaire pour centraliser les entêtes de réponse JSON"""
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+    # ═══════════════════════════════════════════════════════════
+    #  Réponses utilitaires
+    # ═══════════════════════════════════════════════════════════
+    ROUTES_CONNUES = {
+        "GET":  ["/position", "/coordonnees", "/periode", "/distances",
+                 "/preferences", "/version", "/sante", "/<fichier statique>"],
+        "POST": ["/nettoyer", "/actualiser", "/saisie_manuelle", "/periode",
+                 "/preferences", "/distances"],
+    }
+
+    def renvoyer_json(self, corps, code=200):
+        """Entêtes centralisés des réponses JSON.
+        [v1.1.0] no-store : sans cela un navigateur peut resservir d'anciens
+        paramètres après une modification."""
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corps)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("X-Localisation-Version", VERSION_LOCALISATION)
         # Access-Control-Allow-Origin ajouté automatiquement par end_headers()
         self.end_headers()
         self.wfile.write(corps)
 
+    def envoyer_404(self, detail=""):
+        """404 avec un corps : un 404 muet ne dit pas si le processus est
+        absent ou si c'est la route qui n'existe pas."""
+        print(f"[HTTP] ⚠️  404 {self.command} {self.path} — {detail or 'route inconnue'}")
+        self.renvoyer_json(json.dumps({
+            "ok": False,
+            "erreur": "route inconnue",
+            "detail": detail,
+            "methode": self.command,
+            "chemin": self.path,
+            "routes_disponibles": self.ROUTES_CONNUES.get(self.command, []),
+            "version_localisation": VERSION_LOCALISATION,
+        }, ensure_ascii=False).encode("utf-8"), 404)
+
+    def envoyer_500(self, exc):
+        import traceback
+        print(f"[HTTP] ❌ Exception sur {self.command} {self.path} : {exc!r}")
+        print(traceback.format_exc())
+        try:
+            self.renvoyer_json(json.dumps({
+                "ok": False,
+                "erreur": str(exc),
+                "chemin": self.path,
+                "version_localisation": VERSION_LOCALISATION,
+            }, ensure_ascii=False).encode("utf-8"), 500)
+        except Exception:
+            pass   # connexion déjà fermée
+
+    def _sante(self):
+        """Bilan complet en une requête, pendant de /sante côté 8585."""
+        dossier = os.path.dirname(os.path.abspath(__file__))
+
+        nb_releves, derniere = 0, None
+        try:
+            with open(os.path.join(dossier, FICHIER_JSON), encoding="utf-8") as f:
+                entrees = json.load(f)
+            if isinstance(entrees, list):
+                nb_releves = len(entrees)
+                if entrees:
+                    derniere = entrees[-1].get("date_enregistrement")
+        except Exception:
+            pass
+
+        fichiers = {}
+        for nom in (FICHIER_PARAM, FICHIER_JSON, FICHIER_COORDONNEES, "localisation.log"):
+            chemin_f = os.path.join(dossier, nom)
+            existe = os.path.exists(chemin_f)
+            fichiers[nom] = {"present": existe,
+                             "octets": (os.path.getsize(chemin_f) if existe else 0)}
+
+        uptime = int(time.time() - DEMARRAGE_TS)
+        return {
+            "ok": True,
+            "version_localisation": VERSION_LOCALISATION,
+            "pid": os.getpid(),
+            "port_http": PORT_SERVEUR,
+            "port_https": PORT_SERVEUR_HTTPS,
+            "https_actif": HTTPS_ACTIF,
+            "ecoute_http": "127.0.0.1 uniquement",
+            "uptime_s": uptime,
+            "uptime_lisible": f"{uptime // 3600} h {(uptime % 3600) // 60} min {uptime % 60} s",
+            "dossier": dossier,
+            "periode_min": PARAMETRES.get("period", PERIOD_DEFAUT_MIN),
+            "urls_coordonnees": lire_urls_coordonnees(),
+            "distances": charger_distances(),
+            "releves": nb_releves,
+            "dernier_releve": derniere,
+            "threads_actifs": threading.active_count(),
+            "fichiers": fichiers,
+        }
+
 
 PORT_SERVEUR_HTTPS = 8283   # port HTTPS accessible via Tailscale
+
+# Certificat Tailscale : testé une seule fois, pour que la bannière de
+# démarrage annonce le bon schéma et le bon port.
+CERT_FILE = "/var/db/tailscale/imactavernier-2.tail78c299.ts.net.crt"
+KEY_FILE  = "/var/db/tailscale/imactavernier-2.tail78c299.ts.net.key"
+HTTPS_ACTIF = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
+
+SERVEURS = []   # serveurs à fermer proprement à l'arrêt
 
 def demarrer_serveur():
     # [FIX] ThreadingHTTPServer au lieu de HTTPServer : évite qu'une requête lente
@@ -535,13 +699,37 @@ def demarrer_serveur():
     # HTTP : localhost uniquement → cameraServer.py peut l'appeler, l'extérieur non
     serveur_http = ThreadingHTTPServer(("127.0.0.1", PORT_SERVEUR), Gestionnaire)
     threading.Thread(target=serveur_http.serve_forever, daemon=True).start()
-    print(f"🌐 HTTP localisation démarré sur 127.0.0.1:{PORT_SERVEUR} (localhost uniquement, multi-thread)")
+    print(f"🌐 HTTP localisation v{VERSION_LOCALISATION} démarré sur "
+          f"127.0.0.1:{PORT_SERVEUR} (localhost uniquement, multi-thread)")
+
+    # ── Arrêt propre : sans cela, les ports restaient occupés quelques
+    #    secondes après un kill et la relance échouait. ──
+    import signal
+    SERVEURS.append(serveur_http)
+
+    def _arret(signum, frame):
+        print(f"🛑 Signal {signum} reçu — arrêt des serveurs de localisation")
+        for s in SERVEURS:
+            threading.Thread(target=s.shutdown, daemon=True).start()
+        time.sleep(0.5)
+        for s in SERVEURS:
+            try:
+                s.server_close()
+            except Exception:
+                pass
+        print("✅ Ports 8282/8283 libérés")
+        os._exit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _arret)
+        except (ValueError, OSError):
+            pass
 
     # HTTPS : toutes interfaces → accessible via Tailscale depuis l'extérieur
-    CERT_FILE = "/var/db/tailscale/imactavernier-2.tail78c299.ts.net.crt"
-    KEY_FILE  = "/var/db/tailscale/imactavernier-2.tail78c299.ts.net.key"
-    if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
+    if HTTPS_ACTIF:
         serveur_https = ThreadingHTTPServer(("0.0.0.0", PORT_SERVEUR_HTTPS), Gestionnaire)
+        SERVEURS.append(serveur_https)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(CERT_FILE, KEY_FILE)
         serveur_https.socket = ctx.wrap_socket(serveur_https.socket, server_side=True)
@@ -652,6 +840,21 @@ def lire_statut_web():
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # ── Options de ligne de commande ─────────────────────────────
+    #   --version      affiche la version et quitte
+    #   --foreground   reste au premier plan (logs dans le terminal,
+    #                  Ctrl-C pour arrêter) : indispensable pour déboguer
+    _args = sys.argv[1:]
+    if "--version" in _args or "-v" in _args:
+        print(f"localisation.py v{VERSION_LOCALISATION}")
+        for _v, _d, _r in HISTORIQUE_VERSIONS:
+            print(f"  v{_v} ({_d}) — {_r}")
+        raise SystemExit(0)
+    if "--aide" in _args or "--help" in _args or "-h" in _args:
+        print("Usage : python3.13 localisation.py [--foreground] [--version]")
+        raise SystemExit(0)
+    PREMIER_PLAN = "--foreground" in _args or "--fg" in _args
+
     # Le script se place lui-même dans son propre répertoire
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
@@ -667,9 +870,18 @@ if __name__ == "__main__":
 
     # ── Affichage sur le terminal AVANT toute redirection ──
     print("─" * 60)
+    print(f"  localisation.py v{VERSION_LOCALISATION}")
     print(f"  Fichier de log JSON  : {os.path.join(script_dir, FICHIER_JSON)}")
     print(f"  Log du script        : {fichier_log}")
-    print(f"  Visualiseur HTML     : http://localhost:{PORT_SERVEUR}/visualiseur_logs.html")
+    print(f"  API HTTP             : http://127.0.0.1:{PORT_SERVEUR}/  "
+          f"(localhost uniquement — inaccessible depuis le réseau)")
+    if HTTPS_ACTIF:
+        print(f"  API HTTPS (Tailscale): https://imactavernier-2.tail78c299.ts.net:{PORT_SERVEUR_HTTPS}/")
+    else:
+        print(f"  API HTTPS            : désactivée (certificat Tailscale absent)")
+    print(f"  Bilan de santé       : http://127.0.0.1:{PORT_SERVEUR}/sante")
+    print(f"  Vu du dashboard      : via le proxy /loc/* de cameraServer.py (port 8585)")
+    print(f"  Visualiseur HTML     : http://127.0.0.1:{PORT_SERVEUR}/visualiseur_logs.html")
     print(f"  Fichier coordonnées  : {os.path.join(script_dir, FICHIER_COORDONNEES)}")
     print(f"  Fichier paramètres   : {os.path.join(script_dir, FICHIER_PARAM)}")
     print(f"  Période de lecture   : {PARAMETRES.get('period', PERIOD_DEFAUT_MIN)} minute(s)")
@@ -681,23 +893,28 @@ if __name__ == "__main__":
     print("  Démarrage en arrière-plan, vous pouvez fermer ce terminal.")
     print("─" * 60)
 
-    # ── Détachement du terminal (fork) ──
-    pid = os.fork()
-    if pid > 0:
-        # Processus parent : affiche le PID et se termine proprement
-        print(f"  Script lancé (PID : {pid}).")
+    # ── Détachement du terminal (fork), sauf en --foreground ──
+    if PREMIER_PLAN:
+        print(f"  PREMIER PLAN (PID : {os.getpid()}) — Ctrl-C pour arrêter.")
         print("─" * 60)
-        raise SystemExit(0)
+    else:
+        pid = os.fork()
+        if pid > 0:
+            # Processus parent : affiche le PID et se termine proprement
+            print(f"  Script lancé (PID : {pid}).")
+            print(f"  Arrêt : kill {pid}   ·   ou : pkill -f \"localisation.py\"")
+            print("─" * 60)
+            raise SystemExit(0)
 
-    # ── Processus enfant : redirection des sorties vers le fichier log ──
-    sys.stdout.flush()
-    sys.stderr.flush()
-    log_fd = open(fichier_log, "a", encoding="utf-8", buffering=1)
-    sys.stdout = log_fd
-    sys.stderr = log_fd
+        # ── Processus enfant : redirection des sorties vers le fichier log ──
+        sys.stdout.flush()
+        sys.stderr.flush()
+        log_fd = open(fichier_log, "a", encoding="utf-8", buffering=1)
+        sys.stdout = log_fd
+        sys.stderr = log_fd
 
-    # Détachement complet de la session terminal
-    os.setsid()
+        # Détachement complet de la session terminal
+        os.setsid()
 
     print(f"\n{'─' * 60}")
     print(f"  Démarré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
