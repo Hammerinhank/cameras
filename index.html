@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.3.1</title>
+<title>CameraOnOff — v2.4.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1466,7 +1466,7 @@
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
   <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.3.1</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.4.0</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1835,8 +1835,16 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.3.1';
+window.APP_VERSION = '2.4.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.4.0', date: '09/09/2026',
+    resume: "Préflight allégé : quand localisation.py ne répond pas, les trois " +
+            "sondes /loc/* suivantes ne sont plus interrogées inutilement et une " +
+            "seule ligne le signale. Le panneau Installation n'est plus reconstruit " +
+            "deux fois par action. La version de localisation.py est lue et affichée " +
+            "à côté de celle de cameraServer.py."
+  },
   {
     v: '2.3.1', date: '09/09/2026',
     resume: "Correction : le paramètre anti-cache ?t= du préflight traversait le " +
@@ -2269,6 +2277,9 @@ async function sonder(sonde) {
     }
     if (sonde.id === 'loc') {
       var d = (data && data.distances) || {};
+      if (data && data.version_localisation) {
+        res.detail = 'localisation.py v' + data.version_localisation;
+      }
       if (nombreValide(d.maison_lat, null) === null || nombreValide(d.maison_lon, null) === null) {
         res.etat = 'donnees-absentes';
         res.detail = 'coordonnées de laMaison absentes ou non numériques';
@@ -2333,6 +2344,8 @@ async function preflight() {
   LOG('PREFLIGHT', 'démarrage du diagnostic des 5 dépendances');
   journalSup('── Préflight de démarrage ──────────────', 'info');
   var serveurVivant = false;
+  var locAbsent = false;
+  var sautees = 0;
 
   for (var i = 0; i < SONDES.length; i++) {
     var sonde = SONDES[i];
@@ -2341,12 +2354,32 @@ async function preflight() {
       ETAT.sondes[sonde.id] = { id: sonde.id, etat: 'injoignable', detail: 'non testé — serveur 8585 absent', code: 0 };
       continue;
     }
+    // [v2.4.0] localisation.py déjà déclaré injoignable : les sondes /loc/*
+    // suivantes ne peuvent que répéter le même message. On les marque sans
+    // requête, et une seule ligne de journal le dit.
+    if (locAbsent && sonde.url.indexOf('/loc/') === 0) {
+      ETAT.sondes[sonde.id] = { id: sonde.id, etat: 'injoignable', code: 0,
+        detail: 'non testée — localisation.py (port 8282) ne répond pas' };
+      sautees++;
+      continue;
+    }
+
     var res = await sonder(sonde);
     ETAT.sondes[sonde.id] = res;
     if (sonde.id === 'serveur') serveurVivant = (res.etat === 'ok' || res.etat === 'donnees-absentes');
+    if (sonde.id === 'loc') {
+      if (res.etat === 'injoignable') locAbsent = true;
+      var vl = res.charge && res.charge.version_localisation;
+      if (vl) { ETAT.versionLocalisation = vl; LOG('PREFLIGHT', 'version de localisation.py : ' + vl); }
+    }
     var et = ETIQUETTES[res.etat] || ETIQUETTES.inconnu;
     journalSup(et.ic + ' ' + sonde.libelle + ' — ' + et.txt + (res.detail ? ' (' + res.detail + ')' : ''),
                res.etat === 'ok' ? 'ok' : (res.etat === 'injoignable' ? 'err' : 'warn'));
+  }
+
+  if (sautees) {
+    journalSup('↪️ ' + sautees + ' dépendance(s) non testée(s) — localisation.py absent, ' +
+               'relancez-le puis « Relancer le diagnostic »', 'warn');
   }
 
   // État global du serveur (sans passer par le fetch supervisé)
@@ -2366,8 +2399,10 @@ async function preflight() {
 
   majModeDegrade();
   majBandeau();
-  if (document.getElementById('page-installation') &&
-      document.getElementById('page-installation').style.display !== 'none') rendreInstallation();
+  // [v2.4.0] Le panneau n'est reconstruit ici que s'il est visible ; les
+  // appelants ne doivent donc plus enchaîner leur propre rendreInstallation().
+  var pi = document.getElementById('page-installation');
+  if (pi && pi.style.display === 'block') rendreInstallation();
 
   if (ETAT.camsChangees) {
     journalSup("La liste des caméras du serveur diffère de celle en mémoire — elle sera appliquée au prochain chargement de la page.", 'warn');
@@ -2749,8 +2784,7 @@ window.enregistrerSurServeur = async function () {
     window.majParamsMaison(f.distances, 'serveur');
     feedback('ok', '✅ Paramètres enregistrés dans localisationParam.json');
     journalSup('Paramètres enregistrés sur le serveur', 'ok');
-    await preflight();
-    rendreInstallation();
+    await preflight();   // reconstruit le panneau lui-même
   } catch (e) {
     feedback('err', '❌ Échec — ' + e.message + ". Repli possible : téléchargez le JSON et déposez-le à la main.");
   }
@@ -2802,8 +2836,7 @@ window.enregistrerServeur = async function () {
   definirBase(adr, true);
   retourServeur('info', '⏳ Adresse enregistrée — nouveau diagnostic…');
   ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
-  await preflight();
-  rendreInstallation();
+  await preflight();   // reconstruit le panneau lui-même
 };
 
 window.reinitialiserServeur = async function () {
@@ -2813,8 +2846,7 @@ window.reinitialiserServeur = async function () {
   definirBase(r.base, false);
   retourServeur('info', '↩︎ Détection automatique rétablie — nouveau diagnostic…');
   ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
-  await preflight();
-  rendreInstallation();
+  await preflight();   // reconstruit le panneau lui-même
 };
 
 window.bilanSante = async function () {
@@ -2867,8 +2899,7 @@ window.relancerPreflight = async function () {
   var el = document.getElementById('inst-preflight-etat');
   if (el) el.textContent = ' ⏳ diagnostic en cours…';
   ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
-  await preflight();
-  rendreInstallation();
+  await preflight();   // reconstruit le panneau lui-même
 };
 
 /* ── 13. Modal historique des versions ─────────────────────── */
