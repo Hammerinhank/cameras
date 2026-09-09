@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.4.0</title>
+<title>CameraOnOff — v2.5.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -393,7 +393,7 @@
    SUPERVISION v2.0.0 — bandeau, mode dégradé, onglet Installation
 ════════════════════════════════════════════ */
   /* ── Décalage des pages sous la barre d'onglets + bandeau ── */
-  #page-cameras, #page-localisation, #page-parametrage, #page-installation, #page-log {
+  #page-cameras, #page-localisation, #page-parametrage, #page-installation, #page-log, #page-investigation {
     padding-top: var(--decalage-haut, 44px) !important;
   }
 
@@ -563,6 +563,24 @@
   .log-actions .inst-btn { margin: 0; }
   #log-compteur { color: #8b9198; font-size: 12px; margin-left: auto; }
   #log-etat { font-size: 12.5px; min-height: 18px; color: #8b9198; }
+
+  /* ── Page Investigation ── */
+  #page-investigation {
+    display: none;
+    background: #0e0f11; color: #e8eaf0; min-height: 100vh;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+  }
+  #page-investigation .inv-wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 60px; }
+  #page-investigation h2 { font-size: 19px; margin: 0 0 4px; }
+  #page-investigation .inv-intro { color: #8b9198; font-size: 13px; margin-bottom: 18px; line-height: 1.5; }
+  #page-investigation textarea {
+    width: 100%; box-sizing: border-box;
+    background: #0a0b0d; border: 1px solid #2a2d33; border-radius: 8px;
+    color: #cbd5e1; padding: 10px;
+    font-family: 'DM Mono', monospace; font-size: 11.5px; line-height: 1.6;
+    resize: vertical; margin-top: 8px;
+  }
+  #page-investigation textarea:focus { outline: none; border-color: #60a5fa; }
 
 </style>
 
@@ -1465,8 +1483,9 @@
   <button id="tab-btn-localisation"             onclick="showPage('localisation')">📍 Localisation</button>
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
+  <button id="tab-btn-investigation"            onclick="showPage('investigation')">🔬 Investig.</button>
   <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.4.0</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.5.0</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1835,8 +1854,18 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.4.0';
+window.APP_VERSION = '2.5.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.5.0', date: '09/09/2026',
+    resume: "Nouvel onglet 🔬 Investigation, dédié au cas « présent à la maison mais " +
+            "détecté au loin ». Il remonte les quatre maillons de la chaîne (fichier " +
+            "GitHub → historique de localisation.py → distance recalculée → décision " +
+            "du serveur caméras), signale automatiquement les causes probables classées " +
+            "par vraisemblance, propose un simulateur de position et la comparaison avec " +
+            "la géolocalisation du navigateur, et produit une synthèse complète copiable " +
+            "pour analyse."
+  },
   {
     v: '2.4.0', date: '09/09/2026',
     resume: "Préflight allégé : quand localisation.py ne répond pas, les trois " +
@@ -1959,6 +1988,10 @@ function reecrireURL(url) {
   var m = url.match(/^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^\/]*:8585(.*)$/);
   return m ? (BASE + m[1]) : url;
 }
+
+/* Rendus des pages ajoutées : nom de page → fonction.
+   Déclaré ici car les sections suivantes y inscrivent leur rendu. */
+var RENDU_PAGE = {};
 
 /* ── 3. Utilitaires ────────────────────────────────────────── */
 /* Déclaré ici (et pas en §9) : majParamsMaison peut journaliser dès le boot. */
@@ -2634,6 +2667,7 @@ function rendreInstallation() {
   genererJSON();
 }
 window.rendreInstallation = rendreInstallation;
+RENDU_PAGE.installation = rendreInstallation;
 
 function champ(id, label, valeur, type, pas) {
   return '<div class="inst-champ"><label for="' + id + '">' + label + '</label>' +
@@ -2922,8 +2956,10 @@ window.fermerVersions = function () {
 /* ── 14. Navigation : greffe de l'onglet Installation ───────── */
 var PAGES_ORIGINE = ['page-cameras', 'page-localisation', 'page-parametrage'];
 var ONGLETS_ORIGINE = ['tab-btn-cameras', 'tab-btn-localisation', 'tab-btn-parametrage'];
-var PAGES_AJOUTEES = { installation: 'page-installation', log: 'page-log' };
-var ONGLETS_AJOUTES = { installation: 'tab-btn-installation', log: 'tab-btn-log' };
+var PAGES_AJOUTEES = { installation: 'page-installation', log: 'page-log',
+                       investigation: 'page-investigation' };
+var ONGLETS_AJOUTES = { installation: 'tab-btn-installation', log: 'tab-btn-log',
+                        investigation: 'tab-btn-investigation' };
 
 function afficherPageAjoutee(nom) {
   LOG('NAV', 'affichage de la page « ' + nom + ' »');
@@ -2963,19 +2999,18 @@ function greffonNavigation() {
   window.showPage = function (nom) {
     LOG('NAV', 'showPage("' + nom + '") appelé');
     try {
-      if (nom === 'installation' || nom === 'log') {
+      if (PAGES_AJOUTEES[nom]) {
         diagAffichage(PAGES_AJOUTEES[nom], 'avant affichage');
         afficherPageAjoutee(nom);
-        if (nom === 'installation') {
+        var rendu = RENDU_PAGE[nom];
+        if (typeof rendu === 'function') {
           try {
-            rendreInstallation();
-            LOG('NAV', 'rendreInstallation() terminé');
+            rendu();
+            LOG('NAV', 'rendu de « ' + nom + ' » terminé');
           } catch (e) {
-            LOG('ERREUR', 'rendreInstallation() a échoué : ' + e.message,
+            LOG('ERREUR', 'le rendu de « ' + nom + ' » a échoué : ' + e.message,
                 (e.stack || '').split('\n').slice(0, 3).join(' | '));
           }
-        } else {
-          rafraichirLog();
         }
         diagAffichage(PAGES_AJOUTEES[nom], 'fin de showPage');
         return;
@@ -3016,6 +3051,7 @@ function rafraichirLog() {
   if (c) c.textContent = LOGS.length + ' ligne(s)';
 }
 window.rafraichirLog = rafraichirLog;
+RENDU_PAGE.log = rafraichirLog;
 
 window.copierLog = function () {
   var z = document.getElementById('log-zone');
@@ -3045,6 +3081,667 @@ window.viderLog = function () {
   rafraichirLog();
   var etat = document.getElementById('log-etat');
   if (etat) { etat.style.color = '#8b9198'; etat.textContent = 'Journal vidé.'; }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   ONGLET 🔬 INVESTIGATION  (v2.5.0)
+   Conçu pour un cas précis et pénible à diagnostiquer : on est à la
+   maison depuis des heures, la page continue d'annoncer « loin », et
+   les caméras restent allumées.
+
+   La chaîne comporte quatre maillons, et rien n'indiquait lequel
+   lâchait :
+     1. le Raccourci iOS écrit iphone*.txt sur GitHub
+     2. localisation.py relit ce fichier (toutes les N minutes) et
+        l'ajoute à historique_positions.json
+     3. la page calcule la distance à laMaison et en tire proche/loin
+     4. cameraServer.py décide d'allumer ou d'éteindre
+   Ce panneau interroge les quatre séparément et les confronte.
+   ══════════════════════════════════════════════════════════════ */
+
+var INV = { donnees: null, enCours: false, geoNavigateur: null, simulation: null };
+window.INV = INV;
+
+/* ── Utilitaires de date ────────────────────────────────────── */
+/* date_enregistrement arrive en français ("09/09/2026 14:32:10"),
+   parfois en ISO. On accepte les deux et on renvoie null si illisible
+   plutôt que de produire une NaN silencieuse. */
+function parserDate(txt) {
+  if (!txt || typeof txt !== 'string') return null;
+  var m = txt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0));
+  }
+  var d = new Date(txt);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function ageTexte(date) {
+  if (!date) return 'date illisible';
+  var s = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (s < 0) return 'dans le futur (' + Math.abs(Math.floor(s / 60)) + ' min)';
+  if (s < 90) return s + ' s';
+  if (s < 5400) return Math.floor(s / 60) + ' min';
+  if (s < 172800) return Math.floor(s / 3600) + ' h ' + Math.floor((s % 3600) / 60) + ' min';
+  return Math.floor(s / 86400) + ' j';
+}
+
+function ageMinutes(date) {
+  return date ? (Date.now() - date.getTime()) / 60000 : null;
+}
+
+/* Haversine — recalculée ici pour être indépendante du reste de la page :
+   si le calcul du dashboard était faux, il ne faudrait pas le réutiliser. */
+function distanceKmInv(lat1, lon1, lat2, lon2) {
+  var R = 6371, r = Math.PI / 180;
+  var dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+window.distanceKmInv = distanceKmInv;
+
+/* ── Collecte : on interroge chaque maillon séparément ───────── */
+async function jsonSur(chemin, options) {
+  var t0 = Date.now();
+  try {
+    var opts = options || {};
+    var sig = signalTimeout(8000); if (sig && !opts.signal) opts.signal = sig;
+    var r = await fetchNatif(BASE + chemin, opts);
+    var brut = await r.text();
+    var data = null;
+    try { data = JSON.parse(brut); } catch (e) {}
+    return { ok: r.ok, code: r.status, data: data, brut: brut.slice(0, 4000), ms: Date.now() - t0 };
+  } catch (e) {
+    return { ok: false, code: 0, data: null, erreur: e.message, ms: Date.now() - t0 };
+  }
+}
+
+async function collecterInvestigation() {
+  if (INV.enCours) return INV.donnees;
+  INV.enCours = true;
+  LOG('INVEST', '── collecte des quatre maillons ──');
+  var d = { instant: new Date(), etapes: {} };
+
+  // Maillon 3 bis — paramètres utilisés pour la décision
+  d.params = {
+    lat: window.MAISON_LAT, lon: window.MAISON_LON,
+    rayon: window.MAISON_RAYON_KM,
+    fiables: window.PARAMS_FIABLES, source: window.PARAMS_SOURCE
+  };
+
+  // Interrogations en parallèle
+  var res = await Promise.all([
+    jsonSur('/loc/distances'), jsonSur('/loc/periode'), jsonSur('/loc/coordonnees'),
+    jsonSur('/loc/historique_positions.json?t=' + Date.now()), jsonSur('/loc/sante'),
+    jsonSur('/status'), jsonSur('/proximite-status'), jsonSur('/actualisation-status'),
+    jsonSur('/sante')
+  ]);
+  d.etapes.distances  = res[0];
+  d.etapes.periode    = res[1];
+  d.etapes.coordonnees = res[2];
+  d.etapes.historique = res[3];
+  d.etapes.santeLoc   = res[4];
+  d.etapes.status     = res[5];
+  d.etapes.proximite  = res[6];
+  d.etapes.actualisation = res[7];
+  d.etapes.santeCam   = res[8];
+
+  d.periode = (d.etapes.periode.data && d.etapes.periode.data.period) || null;
+  d.urls = (d.etapes.coordonnees.data && d.etapes.coordonnees.data.urls) || [];
+
+  // Maillon 2 — dernière position de chaque personne dans l'historique
+  var hist = Array.isArray(d.etapes.historique.data) ? d.etapes.historique.data : [];
+  d.nbReleves = hist.length;
+  d.personnes = [];
+  var noms = d.urls.map(function (u) { return u.split('/').pop(); });
+  if (!noms.length) {
+    // Repli : on prend les noms de fichiers trouvés dans l'historique
+    var vus = {};
+    hist.forEach(function (e) { if (e.nomfichier) vus[e.nomfichier] = 1; });
+    noms = Object.keys(vus);
+  }
+
+  noms.forEach(function (nom) {
+    var p = { nom: nom, trouve: false, entrees: 0 };
+    for (var i = hist.length - 1; i >= 0; i--) {
+      var e = hist[i];
+      if ((e.nomfichier || '') !== nom) continue;
+      p.entrees++;
+      if (p.trouve) continue;
+      var lat = null, lon = null;
+      if (e.latitude && e.longitude) { lat = parseFloat(e.latitude); lon = parseFloat(e.longitude); }
+      else if (e.position && String(e.position).indexOf(',') !== -1) {
+        var t = String(e.position).split(','); lat = parseFloat(t[0]); lon = parseFloat(t[1]);
+      }
+      if (lat !== null && !isNaN(lat) && lon !== null && !isNaN(lon)) {
+        p.trouve = true;
+        p.lat = lat; p.lon = lon;
+        p.dateTexte = e.date_enregistrement || e.date_lisible || e.date || '?';
+        p.date = parserDate(p.dateTexte);
+        p.ageMin = ageMinutes(p.date);
+        p.brut = e;
+      }
+    }
+    if (p.trouve && Number.isFinite(d.params.lat) && Number.isFinite(d.params.lon)) {
+      p.dist = distanceKmInv(p.lat, p.lon, d.params.lat, d.params.lon);
+      p.proche = p.dist < d.params.rayon;
+    }
+    d.personnes.push(p);
+  });
+
+  // Maillon 1 — le fichier source sur GitHub, lu DIRECTEMENT par le navigateur.
+  // C'est ce qui permet de dire si le retard vient du Raccourci iOS ou du
+  // cycle de lecture de localisation.py.
+  d.sources = [];
+  for (var k = 0; k < d.urls.length; k++) {
+    var url = d.urls[k];
+    var src = { url: url, nom: url.split('/').pop() };
+    try {
+      var sig2 = signalTimeout(8000);
+      var rr = await fetchNatif(url + (url.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now(),
+                                sig2 ? { signal: sig2, cache: 'no-store' } : { cache: 'no-store' });
+      src.code = rr.status;
+      src.contenu = (await rr.text()).slice(0, 1200);
+      var mlat = src.contenu.match(/lat(?:itude)?\s*[:=]\s*(-?\d+[.,]?\d*)/i);
+      var mlon = src.contenu.match(/lon(?:g|gitude)?\s*[:=]\s*(-?\d+[.,]?\d*)/i);
+      var mdate = src.contenu.match(/date\s*[:=]\s*([^\n\r]+)/i);
+      if (mlat) src.lat = parseFloat(mlat[1].replace(',', '.'));
+      if (mlon) src.lon = parseFloat(mlon[1].replace(',', '.'));
+      if (mdate) { src.dateTexte = mdate[1].trim(); src.date = parserDate(src.dateTexte); }
+      if (Number.isFinite(src.lat) && Number.isFinite(d.params.lat)) {
+        src.dist = distanceKmInv(src.lat, src.lon, d.params.lat, d.params.lon);
+      }
+    } catch (e) {
+      src.erreur = e.message;
+    }
+    d.sources.push(src);
+  }
+
+  d.versions = {
+    page: window.APP_VERSION,
+    serveur: (d.etapes.status.data && d.etapes.status.data.version_serveur) || '?',
+    localisation: (d.etapes.distances.data && d.etapes.distances.data.version_localisation) || '?'
+  };
+
+  INV.donnees = d;
+  INV.enCours = false;
+  LOG('INVEST', 'collecte terminée — ' + d.personnes.length + ' personne(s), ' +
+      d.nbReleves + ' relevé(s), ' + d.sources.length + ' source(s) GitHub');
+  return d;
+}
+
+/* ── Analyse : causes probables, classées ───────────────────── */
+function analyserInvestigation(d) {
+  var a = [];
+  function ajouter(gravite, titre, detail, action) {
+    a.push({ gravite: gravite, titre: titre, detail: detail, action: action });
+  }
+
+  if (!d.params.fiables) {
+    ajouter(1, "Coordonnées de laMaison non fiables",
+      "PARAMS_FIABLES est faux (source : " + d.params.source + "). Toute décision automatique est bloquée.",
+      "Onglet 🩹 Install., bloc 4 : renseignez latitude, longitude et rayon.");
+  }
+
+  // Ces coordonnées sont la valeur de repli codée dans la page. Elles peuvent
+  // aussi être la vraie adresse : on n'alerte que si elles ne viennent PAS du
+  // serveur, sinon l'alerte serait un faux positif permanent.
+  if (d.params.source !== 'serveur' &&
+      Math.abs(d.params.lat - 48.83389) < 0.0001 && Math.abs(d.params.lon - 2.29546) < 0.0001) {
+    ajouter(1, "Coordonnées de laMaison encore aux valeurs par défaut",
+      "48.83389 / 2.29546 est la valeur de repli codée dans la page, pas une adresse configurée. " +
+      "Toute position réelle sera vue « loin ».",
+      "Vérifiez avec le bouton « 📍 Comparer à ma position réelle » ci-dessous.");
+  }
+
+  if (d.params.rayon !== undefined && d.params.rayon < 0.15) {
+    ajouter(2, "Rayon de présence très petit (" + d.params.rayon + " km)",
+      "Sous 150 m, l'imprécision GPS courante suffit à faire basculer en « loin ».",
+      "Passez le rayon à 0,3–1 km dans l'onglet Install.");
+  }
+
+  var periode = d.periode || null;
+  d.personnes.forEach(function (p) {
+    if (!p.trouve) {
+      ajouter(1, "Aucune position pour " + p.nom,
+        "Aucune entrée exploitable dans l'historique pour ce fichier.",
+        "Vérifiez que le Raccourci iOS de cette personne fonctionne.");
+      return;
+    }
+    if (p.ageMin !== null && periode && p.ageMin > periode * 1.5) {
+      ajouter(1, "Position de " + p.nom + " périmée (" + ageTexte(p.date) + ")",
+        "Le dernier relevé date de plus d'une fois et demie la période de lecture (" +
+        periode + " min). La décision se prend donc sur une position obsolète — " +
+        "typiquement celle d'avant le retour à la maison.",
+        "Bouton « ⚡ Forcer une lecture GPS » ci-dessous ; si le relevé ne rajeunit pas, " +
+        "le problème est en amont (Raccourci iOS ou GitHub).");
+    } else if (p.ageMin !== null && p.ageMin > 180) {
+      ajouter(2, "Position de " + p.nom + " ancienne (" + ageTexte(p.date) + ")",
+        "Plus de 3 h sans nouveau relevé.",
+        "Forcez une lecture et vérifiez le Raccourci iOS.");
+    }
+    if (p.dist !== undefined && !p.proche && p.dist < d.params.rayon * 2) {
+      ajouter(2, p.nom + " est juste au-delà du seuil (" + p.dist.toFixed(2) +
+        " km pour un rayon de " + d.params.rayon + " km)",
+        "L'écart est faible : soit le rayon est trop serré, soit les coordonnées de " +
+        "laMaison sont légèrement décalées.",
+        "Comparez avec la position réelle du navigateur ci-dessous.");
+    }
+    if (Math.abs(p.lat) > 90) {
+      ajouter(1, "Latitude hors bornes pour " + p.nom + " (" + p.lat + ")",
+        "Une latitude valide est comprise entre -90 et 90 : latitude et longitude sont probablement inversées.",
+        "Vérifiez le format écrit par le Raccourci iOS.");
+    }
+  });
+
+  // Confrontation maillon 1 (GitHub) / maillon 2 (historique)
+  d.sources.forEach(function (src) {
+    var p = d.personnes.filter(function (x) { return x.nom === src.nom; })[0];
+    if (!p || !p.trouve) return;
+    if (src.erreur) {
+      ajouter(2, "Fichier GitHub illisible pour " + src.nom,
+        src.erreur, "Vérifiez l'URL dans coordonnees.txt.");
+      return;
+    }
+    if (Number.isFinite(src.lat) && Number.isFinite(p.lat)) {
+      var ecart = distanceKmInv(src.lat, src.lon, p.lat, p.lon);
+      src.ecartHistorique = ecart;
+      if (ecart > 0.2) {
+        ajouter(1, "GitHub et l'historique divergent pour " + src.nom +
+          " (" + ecart.toFixed(2) + " km d'écart)",
+          "Le fichier source contient une position plus récente que celle enregistrée : " +
+          "localisation.py n'a pas encore relu GitHub. C'est le cycle de lecture qui est en retard, " +
+          "pas le téléphone.",
+          "Bouton « ⚡ Forcer une lecture GPS », puis réduisez la période si le cas se répète.");
+      }
+    }
+    if (src.date && p.date && src.date.getTime() - p.date.getTime() > 15 * 60000) {
+      ajouter(1, "Le fichier GitHub de " + src.nom + " est plus récent que l'historique",
+        "Source : " + src.dateTexte + " · historique : " + p.dateTexte +
+        ". localisation.py n'a pas intégré la dernière position.",
+        "Forcez une lecture GPS.");
+    }
+    if (src.date && ageMinutes(src.date) > 180) {
+      ajouter(1, "Le fichier GitHub de " + src.nom + " lui-même est ancien (" +
+        ageTexte(src.date) + ")",
+        "Le Raccourci iOS n'a rien publié depuis longtemps : le problème est sur le téléphone, " +
+        "pas dans cette application.",
+        "Vérifiez l'automatisation du Raccourci et les autorisations de localisation en arrière-plan.");
+    }
+  });
+
+  var prox = d.etapes.proximite.data;
+  if (prox && (prox.actif === false || prox.enabled === false || prox.mode === false)) {
+    ajouter(2, "Le mode proximité est désactivé côté serveur",
+      "cameraServer.py ne pilote pas les caméras en fonction de la présence.",
+      "Réactivez-le dans l'onglet Caméras Nest.");
+  }
+
+  if (d.periode && d.periode >= 120) {
+    ajouter(3, "Période de lecture longue (" + d.periode + " min)",
+      "Un retour à la maison peut mettre jusqu'à " + d.periode + " minutes à être détecté. " +
+      "C'est le fonctionnement normal, mais cela explique un décalage de plusieurs heures " +
+      "si un cycle a été manqué.",
+      "Réduisez la période dans l'onglet Install. si la réactivité importe.");
+  }
+
+  if (!a.length) {
+    ajouter(4, "Aucune anomalie détectée",
+      "Les quatre maillons sont cohérents entre eux et les positions sont récentes.",
+      "Si le comportement reste anormal, copiez la synthèse pour analyse.");
+  }
+  a.sort(function (x, y) { return x.gravite - y.gravite; });
+  return a;
+}
+
+/* ── Rendu ──────────────────────────────────────────────────── */
+function badge(txt, couleur) {
+  return '<span style="color:' + couleur + ';white-space:nowrap">' + echapper(txt) + '</span>';
+}
+
+function rendreInvestigation() {
+  var zone = document.getElementById('inv-contenu');
+  if (!zone) { LOG('ERREUR', 'rendreInvestigation : #inv-contenu introuvable'); return; }
+  var d = INV.donnees;
+
+  var h = '<div class="inst-bloc"><h3>Commandes</h3>' +
+    '<div class="inst-actions">' +
+      '<button class="inst-btn vert" onclick="lancerInvestigation()">🔍 Collecter maintenant</button>' +
+      '<button class="inst-btn" onclick="forcerLectureGPS()">⚡ Forcer une lecture GPS</button>' +
+      '<button class="inst-btn" onclick="comparerPositionReelle()">📍 Comparer à ma position réelle</button>' +
+      '<button class="inst-btn" onclick="copierSynthese()">📋 Copier la synthèse pour analyse</button>' +
+    '</div><div class="inst-feedback" id="inv-feedback"></div></div>';
+
+  if (!d) {
+    zone.innerHTML = h + '<div class="inst-bloc"><div class="inst-sous">' +
+      'Aucune collecte effectuée. Cliquez sur « Collecter maintenant » : la page interroge ' +
+      'les quatre maillons de la chaîne et les confronte.</div></div>';
+    return;
+  }
+
+  /* 1 · Verdict */
+  h += '<div class="inst-bloc"><h3>1 · Verdict actuel</h3>' +
+    '<div class="inst-sous">Distance recalculée ici même, indépendamment du calcul du dashboard. ' +
+    'Collecte du ' + echapper(d.instant.toLocaleString('fr-FR')) + '.</div>' +
+    '<table class="inst-table"><thead><tr><th>Personne</th><th>Position</th><th>Âge du relevé</th>' +
+    '<th>Distance</th><th>Verdict</th></tr></thead><tbody>';
+  d.personnes.forEach(function (p) {
+    if (!p.trouve) {
+      h += '<tr><td>' + echapper(p.nom) + '</td><td colspan="4">' +
+           badge('aucune position exploitable', '#ef4444') + '</td></tr>';
+      return;
+    }
+    var vieux = (d.periode && p.ageMin > d.periode * 1.5);
+    h += '<tr><td>' + echapper(p.nom) + '<div class="inst-detail">' + p.entrees + ' relevé(s)</div></td>' +
+      '<td class="inst-detail">' + p.lat.toFixed(5) + '<br>' + p.lon.toFixed(5) + '</td>' +
+      '<td>' + badge(ageTexte(p.date), vieux ? '#ef4444' : '#22c55e') +
+      '<div class="inst-detail">' + echapper(p.dateTexte) + '</div></td>' +
+      '<td>' + (p.dist === undefined ? '—' : p.dist.toFixed(3) + ' km') +
+      '<div class="inst-detail">seuil ' + d.params.rayon + ' km</div></td>' +
+      '<td>' + (p.proche ? badge('🏠 PROCHE', '#22c55e') : badge('🚗 LOIN', '#f59e0b')) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  var toutesLoin = d.personnes.length && d.personnes.every(function (p) { return p.trouve && !p.proche; });
+  h += '<div class="inst-detail" style="margin-top:8px">Décision qui en découle : ' +
+       (toutesLoin ? badge('toutes les personnes loin → caméras ALLUMÉES', '#f59e0b')
+                   : badge('au moins une personne proche → caméras ÉTEINTES', '#22c55e')) + '</div></div>';
+
+  /* 2 · Causes probables */
+  var analyse = analyserInvestigation(d);
+  var couleurs = { 1: '#ef4444', 2: '#f59e0b', 3: '#60a5fa', 4: '#22c55e' };
+  var etiquettes = { 1: 'CAUSE PROBABLE', 2: 'À VÉRIFIER', 3: 'INFORMATION', 4: 'OK' };
+  h += '<div class="inst-bloc"><h3>2 · Causes probables, classées</h3>';
+  analyse.forEach(function (x) {
+    h += '<div style="border-left:2px solid ' + couleurs[x.gravite] + ';padding:6px 0 10px 12px;margin-bottom:10px">' +
+      '<div style="color:' + couleurs[x.gravite] + ';font-size:11px;letter-spacing:.08em">' + etiquettes[x.gravite] + '</div>' +
+      '<div style="font-size:13px;margin:2px 0 4px">' + echapper(x.titre) + '</div>' +
+      '<div class="inst-detail">' + echapper(x.detail) + '</div>' +
+      (x.action ? '<div class="inst-detail" style="color:#7dd3fc;margin-top:4px">→ ' + echapper(x.action) + '</div>' : '') +
+      '</div>';
+  });
+  h += '</div>';
+
+  /* 3 · La chaîne, maillon par maillon */
+  h += '<div class="inst-bloc"><h3>3 · La chaîne, maillon par maillon</h3>' +
+    '<div class="inst-sous">Chaque étape est interrogée séparément : c\'est la comparaison entre ' +
+    'les maillons 1 et 2 qui dit si le retard vient du téléphone ou du cycle de lecture.</div>' +
+    '<table class="inst-table"><thead><tr><th>Maillon</th><th>État</th><th>Ce qu\'il contient</th></tr></thead><tbody>';
+
+  d.sources.forEach(function (src) {
+    var etat = src.erreur ? badge('illisible', '#ef4444') :
+               (src.code === 200 ? badge('lu (HTTP 200)', '#22c55e') : badge('HTTP ' + src.code, '#f59e0b'));
+    var contenu = src.erreur ? echapper(src.erreur) :
+      ((Number.isFinite(src.lat) ? src.lat.toFixed(5) + ' / ' + src.lon.toFixed(5) : 'coordonnées non reconnues') +
+       (src.dateTexte ? '<div class="inst-detail">' + echapper(src.dateTexte) + ' — ' + ageTexte(src.date) + '</div>' : '') +
+       (src.ecartHistorique !== undefined ? '<div class="inst-detail">écart avec l\'historique : ' +
+          src.ecartHistorique.toFixed(3) + ' km</div>' : ''));
+    h += '<tr><td>1 · GitHub<div class="inst-detail">' + echapper(src.nom) + '</div></td>' +
+         '<td>' + etat + '</td><td class="inst-detail">' + contenu + '</td></tr>';
+  });
+
+  var sl = d.etapes.santeLoc.data;
+  h += '<tr><td>2 · localisation.py<div class="inst-detail">historique_positions.json</div></td>' +
+    '<td>' + (d.etapes.historique.ok ? badge('OK', '#22c55e') : badge('HTTP ' + d.etapes.historique.code, '#ef4444')) + '</td>' +
+    '<td class="inst-detail">' + d.nbReleves + ' relevé(s)' +
+    (sl && sl.dernier_releve ? '<br>dernier : ' + echapper(sl.dernier_releve) : '') +
+    (d.periode ? '<br>période de lecture : ' + d.periode + ' min' : '') + '</td></tr>';
+
+  h += '<tr><td>3 · Calcul<div class="inst-detail">distance / seuil</div></td>' +
+    '<td>' + (d.params.fiables ? badge('paramètres fiables', '#22c55e') : badge('non fiables', '#ef4444')) + '</td>' +
+    '<td class="inst-detail">laMaison : ' + d.params.lat + ' / ' + d.params.lon +
+    '<br>rayon : ' + d.params.rayon + ' km · source : ' + echapper(d.params.source) + '</td></tr>';
+
+  var st = d.etapes.status.data || {};
+  h += '<tr><td>4 · cameraServer.py<div class="inst-detail">décision finale</div></td>' +
+    '<td>' + (d.etapes.status.ok ? badge('OK', '#22c55e') : badge('HTTP ' + d.etapes.status.code, '#ef4444')) + '</td>' +
+    '<td class="inst-detail">' + Object.keys(st.cameras || {}).map(function (n) {
+      return echapper(n) + ' : ' + (st.cameras[n] === true ? 'ON' : (st.cameras[n] === false ? 'off' : '?'));
+    }).join('<br>') +
+    '<br>proximité : ' + echapper(JSON.stringify(d.etapes.proximite.data)).slice(0, 120) + '</td></tr>';
+  h += '</tbody></table></div>';
+
+  /* 4 · Simulateur */
+  var cfgLat = Number.isFinite(d.params.lat) ? d.params.lat : '';
+  var cfgLon = Number.isFinite(d.params.lon) ? d.params.lon : '';
+  h += '<div class="inst-bloc"><h3>4 · Simulateur de position</h3>' +
+    '<div class="inst-sous">Saisissez des coordonnées pour voir le verdict qu\'elles produiraient. ' +
+    'Saisir les coordonnées réelles de la maison doit donner une distance quasi nulle : si ce n\'est ' +
+    'pas le cas, ce sont les paramètres de laMaison qui sont faux.</div>' +
+    '<div class="inst-grille">' +
+      champ('sim-lat', 'Latitude à tester', cfgLat, 'number', '0.00001') +
+      champ('sim-lon', 'Longitude à tester', cfgLon, 'number', '0.00001') +
+    '</div>' +
+    '<div class="inst-actions">' +
+      '<button class="inst-btn" onclick="simulerPosition()">🧮 Calculer le verdict</button>' +
+      '<button class="inst-btn" onclick="remplirAvecGeoloc()">📡 Utiliser ma position actuelle</button>' +
+    '</div><div class="inst-feedback" id="sim-resultat"></div></div>';
+
+  /* 5 · Réponses brutes */
+  h += '<div class="inst-bloc"><h3>5 · Réponses brutes</h3>' +
+    '<div class="inst-sous">Ce que chaque route a réellement répondu, sans interprétation.</div>' +
+    '<table class="inst-table"><thead><tr><th>Route</th><th>Code</th><th>Durée</th><th>Extrait</th></tr></thead><tbody>';
+  var routes = { distances: '/loc/distances', periode: '/loc/periode', coordonnees: '/loc/coordonnees',
+                 historique: '/loc/historique_positions.json', santeLoc: '/loc/sante',
+                 status: '/status', proximite: '/proximite-status',
+                 actualisation: '/actualisation-status', santeCam: '/sante' };
+  Object.keys(routes).forEach(function (k) {
+    var e = d.etapes[k];
+    h += '<tr><td class="inst-detail">' + echapper(routes[k]) + '</td>' +
+      '<td>' + badge(e.code || (e.erreur ? 'échec' : '?'), e.ok ? '#22c55e' : '#ef4444') + '</td>' +
+      '<td class="inst-detail">' + e.ms + ' ms</td>' +
+      '<td class="inst-detail" style="max-width:340px;overflow:hidden">' +
+      echapper((e.erreur || e.brut || '').slice(0, 180)) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  /* 6 · Synthèse */
+  h += '<div class="inst-bloc"><h3>6 · Synthèse pour analyse</h3>' +
+    '<div class="inst-sous">Tout ce qui précède, plus les versions et le journal, dans un texte ' +
+    'unique à copier-coller pour analyse.</div>' +
+    '<div class="inst-actions">' +
+      '<button class="inst-btn vert" onclick="copierSynthese()">📋 Copier</button>' +
+      '<button class="inst-btn" onclick="telechargerSynthese()">⬇️ Télécharger</button>' +
+    '</div>' +
+    '<textarea id="inv-synthese" rows="16" spellcheck="false" readonly></textarea></div>';
+
+  zone.innerHTML = h;
+  var ta = document.getElementById('inv-synthese');
+  if (ta) ta.value = construireSynthese();
+}
+window.rendreInvestigation = rendreInvestigation;
+RENDU_PAGE.investigation = rendreInvestigation;
+
+function retourInv(classe, msg) {
+  var el = document.getElementById('inv-feedback');
+  if (!el) return;
+  var c = { ok: '#22c55e', err: '#ef4444', info: '#60a5fa', warn: '#f59e0b' };
+  el.style.color = c[classe] || '#8b9198';
+  el.textContent = msg;
+}
+
+window.lancerInvestigation = async function () {
+  retourInv('info', '⏳ Interrogation des quatre maillons…');
+  await collecterInvestigation();
+  rendreInvestigation();
+  retourInv('ok', '✅ Collecte terminée à ' + new Date().toLocaleTimeString('fr-FR'));
+};
+
+window.forcerLectureGPS = async function () {
+  retourInv('info', '⏳ Lecture GPS forcée — localisation.py relit GitHub…');
+  LOG('INVEST', 'POST /loc/actualiser');
+  try {
+    var r = await window.fetch(BASE + '/loc/actualiser', { method: 'POST' });
+    var t = await r.text();
+    LOG('INVEST', 'réponse /loc/actualiser : HTTP ' + r.status + ' ' + t.slice(0, 200));
+    if (!r.ok) { retourInv('err', '❌ HTTP ' + r.status + ' — ' + t.slice(0, 160)); return; }
+    retourInv('info', '⏳ Lecture demandée, nouvelle collecte dans 3 s…');
+    setTimeout(async function () {
+      await collecterInvestigation();
+      rendreInvestigation();
+      retourInv('ok', '✅ Relevés rafraîchis — comparez les âges ci-dessus');
+    }, 3000);
+  } catch (e) {
+    retourInv('err', '❌ ' + e.message);
+  }
+};
+
+window.simulerPosition = function () {
+  var lat = nombreValide((document.getElementById('sim-lat') || {}).value, null);
+  var lon = nombreValide((document.getElementById('sim-lon') || {}).value, null);
+  var el = document.getElementById('sim-resultat');
+  if (!el) return;
+  if (lat === null || lon === null) { el.style.color = '#ef4444'; el.textContent = '❌ Coordonnées invalides'; return; }
+  if (!Number.isFinite(window.MAISON_LAT)) { el.style.color = '#ef4444'; el.textContent = '❌ Coordonnées de laMaison inconnues'; return; }
+  var dist = distanceKmInv(lat, lon, window.MAISON_LAT, window.MAISON_LON);
+  var proche = dist < window.MAISON_RAYON_KM;
+  el.style.color = proche ? '#22c55e' : '#f59e0b';
+  el.textContent = (proche ? '🏠 PROCHE' : '🚗 LOIN') + ' — ' + dist.toFixed(3) + ' km de laMaison (' +
+    window.MAISON_LAT + ' / ' + window.MAISON_LON + '), seuil ' + window.MAISON_RAYON_KM + ' km';
+  LOG('INVEST', 'simulation ' + lat + '/' + lon + ' → ' + dist.toFixed(3) + ' km, ' + (proche ? 'proche' : 'loin'));
+};
+
+function obtenirGeoloc() {
+  return new Promise(function (resoudre, rejeter) {
+    if (!navigator.geolocation) { rejeter(new Error('géolocalisation indisponible dans ce navigateur')); return; }
+    navigator.geolocation.getCurrentPosition(
+      function (pos) { resoudre(pos.coords); },
+      function (err) { rejeter(new Error(err.message || 'refus de géolocalisation')); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  });
+}
+
+window.remplirAvecGeoloc = async function () {
+  var el = document.getElementById('sim-resultat');
+  if (el) { el.style.color = '#60a5fa'; el.textContent = '⏳ Demande de position au navigateur…'; }
+  try {
+    var c = await obtenirGeoloc();
+    document.getElementById('sim-lat').value = c.latitude.toFixed(6);
+    document.getElementById('sim-lon').value = c.longitude.toFixed(6);
+    INV.geoNavigateur = { lat: c.latitude, lon: c.longitude, precision: c.accuracy, quand: new Date() };
+    simulerPosition();
+  } catch (e) {
+    if (el) { el.style.color = '#ef4444'; el.textContent = '❌ ' + e.message; }
+  }
+};
+
+/* Le test décisif quand on est à la maison : la position réelle du
+   navigateur comparée aux coordonnées enregistrées de laMaison. */
+window.comparerPositionReelle = async function () {
+  retourInv('info', '⏳ Demande de position au navigateur…');
+  try {
+    var c = await obtenirGeoloc();
+    INV.geoNavigateur = { lat: c.latitude, lon: c.longitude, precision: c.accuracy, quand: new Date() };
+    if (!Number.isFinite(window.MAISON_LAT)) { retourInv('err', '❌ Coordonnées de laMaison inconnues'); return; }
+    var dist = distanceKmInv(c.latitude, c.longitude, window.MAISON_LAT, window.MAISON_LON);
+    LOG('INVEST', 'position navigateur ' + c.latitude.toFixed(5) + '/' + c.longitude.toFixed(5) +
+        ' (±' + Math.round(c.accuracy) + ' m) → ' + dist.toFixed(3) + ' km de laMaison');
+    var verdict;
+    if (dist < 0.15) verdict = '✅ Les coordonnées de laMaison sont bonnes (' + Math.round(dist * 1000) + ' m d\'écart).';
+    else if (dist < window.MAISON_RAYON_KM) verdict = '⚠️ Écart de ' + dist.toFixed(2) + ' km : dans le rayon, mais les coordonnées mériteraient d\'être recentrées.';
+    else verdict = '❌ Vous êtes à ' + dist.toFixed(2) + ' km des coordonnées enregistrées de laMaison, au-delà du rayon de ' +
+                   window.MAISON_RAYON_KM + ' km. C\'est la cause : corrigez laMaison avec ces coordonnées (' +
+                   c.latitude.toFixed(5) + ' / ' + c.longitude.toFixed(5) + ').';
+    retourInv(dist < 0.15 ? 'ok' : (dist < window.MAISON_RAYON_KM ? 'warn' : 'err'), verdict);
+    if (INV.donnees) { var ta = document.getElementById('inv-synthese'); if (ta) ta.value = construireSynthese(); }
+  } catch (e) {
+    retourInv('err', '❌ ' + e.message);
+  }
+};
+
+/* ── Synthèse textuelle ─────────────────────────────────────── */
+function construireSynthese() {
+  var d = INV.donnees;
+  if (!d) return 'Aucune collecte effectuée.';
+  var L = [];
+  L.push('# Investigation « présent mais détecté au loin »');
+  L.push('Collecte du ' + d.instant.toLocaleString('fr-FR'));
+  L.push('Page v' + d.versions.page + ' · cameraServer.py v' + d.versions.serveur +
+         ' · localisation.py v' + d.versions.localisation);
+  L.push('URL : ' + window.location.href + ' · API : ' + BASE);
+  L.push('');
+  L.push('## Paramètres de décision');
+  L.push('laMaison : ' + d.params.lat + ' / ' + d.params.lon + ' — rayon ' + d.params.rayon + ' km');
+  L.push('Fiables : ' + d.params.fiables + ' (source : ' + d.params.source + ')');
+  L.push('Période de lecture GPS : ' + (d.periode === null ? '?' : d.periode + ' min'));
+  L.push('Relevés dans l\'historique : ' + d.nbReleves);
+  if (INV.geoNavigateur) {
+    var g = INV.geoNavigateur;
+    var dg = Number.isFinite(d.params.lat) ? distanceKmInv(g.lat, g.lon, d.params.lat, d.params.lon) : null;
+    L.push('Position réelle du navigateur : ' + g.lat.toFixed(6) + ' / ' + g.lon.toFixed(6) +
+           ' (±' + Math.round(g.precision) + ' m) → ' +
+           (dg === null ? '?' : dg.toFixed(3) + ' km des coordonnées de laMaison'));
+  }
+  L.push('');
+  L.push('## Maillon 2 — dernière position par personne (historique)');
+  d.personnes.forEach(function (p) {
+    if (!p.trouve) { L.push('- ' + p.nom + ' : AUCUNE position exploitable'); return; }
+    L.push('- ' + p.nom + ' : ' + p.lat.toFixed(5) + ' / ' + p.lon.toFixed(5) +
+           ' · ' + p.dateTexte + ' (' + ageTexte(p.date) + ')' +
+           ' · ' + (p.dist === undefined ? '?' : p.dist.toFixed(3) + ' km') +
+           ' → ' + (p.proche ? 'PROCHE' : 'LOIN') + ' · ' + p.entrees + ' relevé(s)');
+  });
+  L.push('');
+  L.push('## Maillon 1 — fichiers sources sur GitHub (lus directement)');
+  d.sources.forEach(function (s) {
+    if (s.erreur) { L.push('- ' + s.nom + ' : ERREUR ' + s.erreur); return; }
+    L.push('- ' + s.nom + ' : HTTP ' + s.code +
+           (Number.isFinite(s.lat) ? ' · ' + s.lat.toFixed(5) + ' / ' + s.lon.toFixed(5) : ' · coordonnées non reconnues') +
+           (s.dateTexte ? ' · ' + s.dateTexte + ' (' + ageTexte(s.date) + ')' : '') +
+           (s.ecartHistorique !== undefined ? ' · écart historique ' + s.ecartHistorique.toFixed(3) + ' km' : ''));
+    L.push('  contenu brut : ' + JSON.stringify((s.contenu || '').slice(0, 300)));
+  });
+  L.push('');
+  L.push('## Causes probables détectées');
+  analyserInvestigation(d).forEach(function (x, i) {
+    L.push((i + 1) + '. [' + ({1:'CAUSE PROBABLE',2:'À VÉRIFIER',3:'INFO',4:'OK'})[x.gravite] + '] ' + x.titre);
+    L.push('   ' + x.detail);
+    if (x.action) L.push('   → ' + x.action);
+  });
+  L.push('');
+  L.push('## Réponses brutes');
+  var routes = { distances: '/loc/distances', periode: '/loc/periode', coordonnees: '/loc/coordonnees',
+                 santeLoc: '/loc/sante', status: '/status', proximite: '/proximite-status',
+                 actualisation: '/actualisation-status', santeCam: '/sante' };
+  Object.keys(routes).forEach(function (k) {
+    var e = d.etapes[k];
+    L.push('### ' + routes[k] + ' → HTTP ' + (e.code || 'échec') + ' en ' + e.ms + ' ms');
+    L.push((e.erreur ? 'ERREUR ' + e.erreur : (e.brut || '').slice(0, 900)));
+  });
+  L.push('');
+  L.push('## Historique — 5 derniers relevés bruts');
+  var hist = Array.isArray(d.etapes.historique.data) ? d.etapes.historique.data : [];
+  hist.slice(-5).forEach(function (e) { L.push(JSON.stringify(e)); });
+  L.push('');
+  L.push('## Journal de la page (80 dernières lignes)');
+  L.push(LOGS.slice(-80).join('\n'));
+  return L.join('\n');
+}
+window.construireSynthese = construireSynthese;
+
+window.copierSynthese = function () {
+  if (!INV.donnees) { retourInv('warn', '⚠️ Lancez d\'abord « Collecter maintenant »'); return; }
+  var txt = construireSynthese();
+  var ta = document.getElementById('inv-synthese');
+  if (ta) ta.value = txt;
+  function ok() { retourInv('ok', '✅ Synthèse copiée (' + txt.length + ' caractères)'); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(ok, function () {
+      if (ta) { ta.removeAttribute('readonly'); ta.focus(); ta.select(); }
+      retourInv('warn', '⚠️ Copie automatique refusée — le texte est sélectionné, faites ⌘C');
+    });
+  } else if (ta) {
+    ta.removeAttribute('readonly'); ta.focus(); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { retourInv('err', '❌ ' + e.message); }
+    ta.setAttribute('readonly', 'readonly');
+  }
+};
+
+window.telechargerSynthese = function () {
+  if (!INV.donnees) { retourInv('warn', '⚠️ Lancez d\'abord « Collecter maintenant »'); return; }
+  var nom = 'investigation-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.md';
+  telecharger(nom, construireSynthese(), 'text/markdown;charset=utf-8');
+  retourInv('ok', '✅ ' + nom);
 };
 
 /* ── 15. Démarrage ─────────────────────────────────────────── */
@@ -6798,6 +7495,22 @@ ${textePositions(positions2)}`;
       lancer, et génère les fichiers de configuration à déposer sur l'iMac.
     </div>
     <div id="inst-contenu"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE 6 — Investigation présence / distance (v2.5.0)
+════════════════════════════════════════════ -->
+<div id="page-investigation">
+  <div class="inv-wrap">
+    <h2>🔬 Investigation présence &amp; distance</h2>
+    <div class="inv-intro">
+      Pour le cas « je suis à la maison mais l'application me croit au loin ». La chaîne compte
+      quatre maillons — le Raccourci iOS qui publie sur GitHub, <code>localisation.py</code> qui relit
+      ce fichier périodiquement, le calcul de distance, puis la décision de <code>cameraServer.py</code>.
+      Chacun est interrogé séparément et confronté aux autres, pour désigner celui qui a lâché.
+    </div>
+    <div id="inv-contenu"></div>
   </div>
 </div>
 
