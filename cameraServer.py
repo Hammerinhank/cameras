@@ -39,8 +39,14 @@ from selenium.webdriver.common.keys import Keys
 #  dans /status (le dashboard peut ainsi vérifier qu'il parle bien
 #  à la version de serveur qu'il attend).
 # ═══════════════════════════════════════════════════════════════
-VERSION_SERVEUR = "1.1.0"
+VERSION_SERVEUR = "1.1.1"
 HISTORIQUE_VERSIONS = [
+    ("1.1.1", "09/09/2026",
+     "Correction : les routes étaient comparées à self.path, qui inclut la "
+     "chaîne de requête. Un appel /status?t=123 (anti-cache) ne correspondait "
+     "donc à aucune route et renvoyait 404. Toutes les comparaisons portent "
+     "maintenant sur le chemin seul ; la requête reste transmise telle quelle "
+     "au proxy /loc/*."),
     ("1.1.0", "09/09/2026",
      "Dashboard renommé cameras.html (CameraOnOff.html reste accepté) ; "
      "service statique généralisé au dossier du script ; en-têtes CORS et "
@@ -1424,7 +1430,7 @@ class Handler(BaseHTTPRequestHandler):
         elif chemin == "/sante":
             self.send_json(self._sante())
 
-        elif self.path == "/status":
+        elif chemin == "/status":
             with camera_lock:
                 statuts = {
                     nom: ("on" if v is True else ("off" if v is False else "unknown"))
@@ -1439,12 +1445,12 @@ class Handler(BaseHTTPRequestHandler):
                             "actions": actions, "diagnostics": diagnostics,
                             "version_serveur": VERSION_SERVEUR})
 
-        elif self.path == "/logs":
+        elif chemin == "/logs":
             with log_lock:
                 lines = list(log_buffer)
             self.send_json({"lines": lines})
 
-        elif self.path == "/refresh":
+        elif chemin == "/refresh":
             with camera_lock:
                 if camera_busy:
                     self.send_json({"ok": False, "reason": "busy"})
@@ -1453,23 +1459,23 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=lire_tous_les_etats, daemon=True).start()
             self.send_json({"ok": True})
 
-        elif self.path == "/debug-status":
+        elif chemin == "/debug-status":
             self.send_json({"debug": debug_mode})
 
         # ── [AJOUT MODE SERVEUR] ──
-        elif self.path == "/proximite-status":
+        elif chemin == "/proximite-status":
             self.send_json({
                 "mode_serveur":  proximite_mode_serveur,
                 "intervalle_s":  proximite_intervalle_s,
                 "cameras":       proximite_cameras,
             })
-        elif self.path == "/actualisation-status":
+        elif chemin == "/actualisation-status":
             self.send_json({
                 "mode_serveur": actualisation_mode_serveur,
                 "intervalle_s": actualisation_intervalle_s,
             })
 
-        elif self.path == "/server-countdown":
+        elif chemin == "/server-countdown":
             now = time.time()
             # Proximité
             if proximite_mode_serveur and _prox_timer_start is not None:
@@ -1504,7 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── [FIN AJOUT] ──
 
         # ── [AJOUT PROXY LOCALISATION] : relais GET vers localisation.py (port 8282) ──
-        elif self.path.startswith("/loc/"):
+        elif chemin.startswith("/loc/"):
             cible = "http://localhost:8282" + self.path[len("/loc"):]
             try:
                 with urllib.request.urlopen(cible, timeout=10) as r:
@@ -1591,7 +1597,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post_interne(self):
         global camera_busy, debug_mode
-        if self.path == "/send-telegram":
+        chemin = self.path.split("?")[0]
+        if chemin == "/send-telegram":
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length))
             texte  = body.get("message", "").strip()
@@ -1605,19 +1612,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True})
             else:
                 self.send_json({"ok": False, "reason": "empty_message"}, 400)
-        elif self.path == "/debug":
+        elif chemin == "/debug":
             debug_mode = not debug_mode
             etat = "activé" if debug_mode else "désactivé"
             log(f"🔬 Mode debug {etat}")
             _sauvegarder_preferences_serveur({"debug": debug_mode})
             self.send_json({"debug": debug_mode})
 
-        elif self.path == "/clear-logs":
+        elif chemin == "/clear-logs":
             with log_lock:
                 log_buffer.clear()
             self.send_json({"ok": True})
 
-        elif self.path == "/toggle":
+        elif chemin == "/toggle":
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length))
             nom    = body.get("camera")
@@ -1632,7 +1639,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "queued": toggle_queue.qsize()})
 
         # ── [AJOUT TEST CAMÉRA] : diagnostic d'une caméra (bouton 🩺 Test) ──
-        elif self.path == "/test-camera":
+        elif chemin == "/test-camera":
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length))
             nom    = body.get("camera")
@@ -1649,7 +1656,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── [FIN AJOUT TEST CAMÉRA] ──
 
         # ── [AJOUT MODE SERVEUR] ──
-        elif self.path == "/proximite-config":
+        elif chemin == "/proximite-config":
             global proximite_mode_serveur, proximite_intervalle_s, proximite_cameras
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length))
@@ -1690,7 +1697,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             })
 
-        elif self.path == "/actualisation-config":
+        elif chemin == "/actualisation-config":
             global actualisation_mode_serveur, actualisation_intervalle_s
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length))
@@ -1726,7 +1733,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── [FIN AJOUT] ──
 
         # ── [AJOUT PROXY LOCALISATION] : relais POST vers localisation.py (port 8282) ──
-        elif self.path.startswith("/loc/"):
+        elif chemin.startswith("/loc/"):
             cible = "http://localhost:8282" + self.path[len("/loc"):]
             length = int(self.headers.get("Content-Length", 0))
             corps_in = self.rfile.read(length) if length else b""
