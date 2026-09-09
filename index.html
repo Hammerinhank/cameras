@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.3.0</title>
+<title>CameraOnOff — v2.3.1</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1466,7 +1466,7 @@
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
   <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.3.0</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.3.1</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1835,8 +1835,17 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.3.0';
+window.APP_VERSION = '2.3.1';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.3.1', date: '09/09/2026',
+    resume: "Correction : le paramètre anti-cache ?t= du préflight traversait le " +
+            "proxy et localisation.py, qui compare ses routes au chemin exact, " +
+            "répondait 404 — d'où trois fausses pannes. L'anti-cache est réservé " +
+            "aux fichiers de données. Un 502 est désormais lu et affiché avec sa " +
+            "vraie cause, et une erreur venant de localisation.py n'est plus " +
+            "présentée comme une absence de processus."
+  },
   {
     v: '2.3.0', date: '09/09/2026',
     resume: "Dialogue avec cameraServer.py v1.1.0 : la version du serveur est lue " +
@@ -2192,7 +2201,7 @@ var SONDES = [
     fichier: 'coordonnees.txt',
     remede: "Déclarez au moins une URL GitHub de fichier iphone*.txt dans coordonnees.txt (générable ci-dessous)." },
   { id: 'hist', libelle: 'historique_positions.json', url: '/loc/historique_positions.json',
-    fichier: 'historique_positions.json',
+    fichier: 'historique_positions.json', antiCache: true,
     remede: "Ce fichier se remplit tout seul à la première lecture GPS. Bouton « Lecture GPS immédiate » de l'onglet Paramétrage, ou attendez le cycle automatique." }
 ];
 
@@ -2211,16 +2220,36 @@ async function sonder(sonde) {
     var s = signalTimeout(4000);
     if (s) opts.signal = s;
     // fetchNatif : le préflight doit pouvoir sonder même en mode dégradé
-    var r = await fetchNatif(BASE + sonde.url + (sonde.url.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now(), opts);
+    // [v2.3.1] L'anti-cache n'est ajouté que sur les fichiers de données.
+    // Sur une route applicative, « ?t=123 » ne correspond à aucune comparaison
+    // de chemin exact côté Python et provoque un 404 trompeur.
+    var cible = BASE + sonde.url + (sonde.antiCache ? '?t=' + Date.now() : '');
+    var r = await fetchNatif(cible, opts);
     res.code = r.status;
     if (r.status === 404 || r.status === 501) {
       res.etat = 'route-absente';
-      res.detail = 'HTTP ' + r.status + ' sur ' + sonde.url;
+      res.detail = 'HTTP ' + r.status + ' sur ' + sonde.url +
+                   (sonde.url.indexOf('/loc/') === 0
+                     ? ' — route inconnue de localisation.py (le processus, lui, répond)'
+                     : '');
       return res;
     }
     if (!r.ok) {
-      res.etat = 'injoignable';
-      res.detail = 'HTTP ' + r.status;
+      // [v2.3.1] Le corps porte la vraie cause : on le lit au lieu de
+      // n'afficher qu'un code, qui ne dit pas si le processus est absent
+      // ou si c'est la route qui n'existe pas.
+      var cause = '';
+      try {
+        var err = await r.json();
+        cause = err.erreur || err.detail || '';
+      } catch (e) {}
+      if (r.status === 502) {
+        res.etat = /injoignable|refused|Connection/i.test(cause) ? 'injoignable' : 'donnees-absentes';
+        res.detail = cause || 'le proxy /loc n\'a pas pu joindre localisation.py';
+      } else {
+        res.etat = 'injoignable';
+        res.detail = 'HTTP ' + r.status + (cause ? ' — ' + cause : '');
+      }
       return res;
     }
     var data = null;
