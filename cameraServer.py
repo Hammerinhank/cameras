@@ -15,6 +15,7 @@ import time
 import json
 import threading
 import collections
+import re
 import queue
 import requests
 import urllib.request
@@ -22,6 +23,7 @@ import urllib.error
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 import ssl
+from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -39,8 +41,16 @@ from selenium.webdriver.common.keys import Keys
 #  dans /status (le dashboard peut ainsi vérifier qu'il parle bien
 #  à la version de serveur qu'il attend).
 # ═══════════════════════════════════════════════════════════════
-VERSION_SERVEUR = "1.1.2"
+VERSION_SERVEUR = "1.2.0"
 HISTORIQUE_VERSIONS = [
+    ("1.2.0", "09/09/2026",
+     "Garde de fraicheur GPS. Les Raccourcis iOS ayant cesse de publier le "
+     "31 aout sans que rien ne le signale, les cameras ont ete pilotees neuf "
+     "jours sur une position perimee. Le tick de proximite verifie desormais "
+     "l'age du POINT GPS (champ Date ecrit par le telephone, et non l'heure "
+     "de relecture du fichier) : au-dela du seuil, aucune decision automatique "
+     "n'est prise et une alerte Telegram part, repetee au plus toutes les 6 h. "
+     "Seuil et etat exposes par /sante."),
     ("1.1.2", "09/09/2026",
      "Proxy /loc/* transparent : une réponse d'erreur de localisation.py "
      "(404, 500...) était convertie en 502 « processus absent », ce qui "
@@ -68,6 +78,15 @@ HISTORIQUE_VERSIONS = [
 ]
 
 DEMARRAGE_TS = time.time()
+
+# ── Garde de fraicheur GPS ───────────────────────────────────────
+# Au-dela de ce delai sans NOUVEAU point GPS (champ "date" ecrit par le
+# Raccourci iOS, et non l'heure de relecture du fichier), la position est
+# tenue pour perimee et aucune decision automatique n'est prise.
+FRAICHEUR_MAX_MIN = 120
+ALERTE_FRAICHEUR_INTERVALLE_S = 6 * 3600   # une alerte Telegram au plus / 6 h
+_derniere_alerte_fraicheur = 0
+_etat_fraicheur = {"ok": None, "detail": "jamais evalue", "ages_min": {}}
 
 PORT = 8585
 
@@ -254,6 +273,62 @@ def _haversine_km(lat1, lon1, lat2, lon2):
          * math.sin(d_lon/2)**2)
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
+MOIS_FR = {"janv": 1, "févr": 2, "fevr": 2, "mars": 3, "avr": 4, "mai": 5, "juin": 6,
+           "juil": 7, "août": 8, "aout": 8, "sept": 9, "oct": 10, "nov": 11,
+           "déc": 12, "dec": 12}
+
+
+def _parser_date_fr(txt):
+    """Analyse la date ecrite par le Raccourci iOS : « 31 aout 2026 a 20:00 ».
+    Accepte aussi l'ISO. Retourne None si illisible — jamais une valeur
+    approchee, qui ferait passer un point perime pour frais."""
+    if not txt or not isinstance(txt, str):
+        return None
+    m = re.search(r"(\d{1,2})\s+([A-Za-z\u00c0-\u00ff]+)\.?\s+(\d{4})"
+                  r"(?:\s+\u00e0\s+(\d{1,2})\s*[:h]\s*(\d{2}))?", txt)
+    if m:
+        cle = m.group(2).lower()[:4]
+        mois = MOIS_FR.get(cle) or MOIS_FR.get(cle[:3])
+        if mois:
+            try:
+                return datetime(int(m.group(3)), mois, int(m.group(1)),
+                                int(m.group(4) or 0), int(m.group(5) or 0))
+            except ValueError:
+                return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(txt.strip()[:19], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _age_point_gps_min(entree):
+    """Age en minutes du POINT GPS (champ "date"), pas de sa relecture.
+    Confondre les deux est ce qui a masque neuf jours de panne."""
+    d = _parser_date_fr(entree.get("date"))
+    if d is None:
+        return None
+    return (datetime.now() - d).total_seconds() / 60.0
+
+
+def _alerter_fraicheur(detail):
+    """Alerte Telegram, au plus une fois toutes les 6 h."""
+    global _derniere_alerte_fraicheur
+    maintenant = time.time()
+    if maintenant - _derniere_alerte_fraicheur < ALERTE_FRAICHEUR_INTERVALLE_S:
+        return
+    _derniere_alerte_fraicheur = maintenant
+    envoyer_telegram(
+        "\U0001F6D1 *Localisation périmée*\n\n"
+        f"Aucun nouveau point GPS depuis plus de {FRAICHEUR_MAX_MIN} min :\n"
+        f"{detail}\n\n"
+        "L'automatisation des caméras est *suspendue* : une position périmée "
+        "ferait prendre de mauvaises décisions en silence.\n\n"
+        "À vérifier : le Raccourci iOS publie-t-il encore sur GitHub, "
+        "et le token est-il toujours valide ?")
+
+
 def _tick_proximite():
     """Exécuté par le timer périodique en mode SERVEUR.
     Interroge localisation.py, compare la position à laMaison,
@@ -298,16 +373,38 @@ def _tick_proximite():
                     lon = float(entree["longitude"])
                 except (KeyError, TypeError, ValueError):
                     continue
-                positions.append((nom, lat, lon))
+                # [v1.2.0] On retient aussi l'age du POINT GPS lui-meme.
+                positions.append((nom, lat, lon, _age_point_gps_min(entree)))
                 break
 
         if not positions:
             log("🏠 [SERVEUR] Aucune position GPS valide trouvée pour les personnes déclarées")
             return
 
+        # ── [v1.2.0] GARDE DE FRAICHEUR ─────────────────────────────
+        # Une position perimee est pire qu'une absence de position : elle est
+        # credible, et fait donc prendre des decisions fausses en silence.
+        perimes = [(n, a) for n, _lat, _lon, a in positions
+                   if a is None or a > FRAICHEUR_MAX_MIN]
+        _etat_fraicheur["ages_min"] = {n: a for n, _lat, _lon, a in positions}
+        if perimes:
+            detail = ", ".join(
+                (n + " : " + ("date illisible" if a is None else "%.1f h" % (a / 60)))
+                for n, a in perimes)
+            _etat_fraicheur["ok"] = False
+            _etat_fraicheur["detail"] = detail
+            log("🛑 [SERVEUR] Décision annulée — point(s) GPS périmé(s) "
+                "(seuil %d min) : %s" % (FRAICHEUR_MAX_MIN, detail))
+            log("   Le fichier est bien relu, mais son champ Date ne change plus : "
+                "vérifiez le Raccourci iOS et la validité du token GitHub.")
+            _alerter_fraicheur(detail)
+            return
+        _etat_fraicheur["ok"] = True
+        _etat_fraicheur["detail"] = "positions fraîches"
+
         # ── Si AU MOINS UNE personne est proche de laMaison → caméras OFF ──
         une_proche = False
-        for nom, lat, lon in positions:
+        for nom, lat, lon, _age in positions:
             dist = _haversine_km(lat, lon, maison_lat, maison_lon)
             a_maison = dist < maison_rayon_km
             log(f"🏠 [SERVEUR] {nom} — distance maison : {dist*1000:.0f} m → {'À LA MAISON' if a_maison else 'ABSENT'}")
@@ -1603,6 +1700,13 @@ class Handler(BaseHTTPRequestHandler):
             "mode_proximite": proximite_mode_serveur,
             "mode_actualisation": actualisation_mode_serveur,
             "localisation_py": {"etat": loc_etat, "detail": loc_detail, "port": 8282},
+            "fraicheur_gps": {
+                "seuil_min": FRAICHEUR_MAX_MIN,
+                "ok": _etat_fraicheur["ok"],
+                "detail": _etat_fraicheur["detail"],
+                "ages_min": {k: (round(v, 1) if v is not None else None)
+                             for k, v in _etat_fraicheur["ages_min"].items()},
+            },
             "fichiers": fichiers,
             "lignes_log": len(log_buffer),
         }
