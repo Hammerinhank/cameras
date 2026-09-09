@@ -1854,8 +1854,16 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.7.0';
+window.APP_VERSION = '2.7.1';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.7.1', date: '09/09/2026',
+    resume: "Correction d'un faux positif : « laMaison est mal située » se déclenchait " +
+            "alors que les positions étaient figées depuis des jours. Une position périmée " +
+            "ne dit rien de l'endroit où l'on se trouve : la règle est désormais " +
+            "suspendue quand le point GPS est trop vieux, et le bouton d'adoption " +
+            "refuse d'enregistrer une position périmée."
+  },
   {
     v: '2.7.0', date: '09/09/2026',
     resume: "Deux tests qui manquaient à l'investigation. Maillon 0 : l'API GitHub " +
@@ -3481,7 +3489,13 @@ function analyserInvestigation(d) {
   // ── Toutes les personnes au même endroit, juste au-delà du seuil :
   //    ce ne sont pas les gens qui sont loin, ce sont les coordonnées de
   //    laMaison qui sont décalées. C'est la cause que la v2.5.0 a manquée.
-  var vues = d.personnes.filter(function (p) { return p.trouve && p.dist !== undefined; });
+  // [v2.7.1] Uniquement sur des positions FRAÎCHES : un point figé depuis des
+  // jours ne dit rien de l'endroit où l'on est, et accuser laMaison à tort
+  // ferait corriger des coordonnées correctes.
+  var vues = d.personnes.filter(function (p) {
+    return p.trouve && p.dist !== undefined &&
+           (p.ageGPSMin === null || p.ageGPSMin < 240);
+  });
   if (vues.length && vues.every(function (p) { return !p.proche; })) {
     var memeEndroit = vues.every(function (p) {
       return distanceKmInv(p.lat, p.lon, vues[0].lat, vues[0].lon) < 0.1;
@@ -3909,6 +3923,14 @@ window.adopterPositionRelevee = async function () {
   if (!d) { retourInv('warn', '⚠️ Lancez d\'abord « Collecter maintenant »'); return; }
   var vues = d.personnes.filter(function (p) { return p.trouve; });
   if (!vues.length) { retourInv('err', '❌ Aucune position relevée'); return; }
+  // [v2.7.1] Garde : enregistrer laMaison depuis un point périmé reviendrait à
+  // déplacer le domicile là où le téléphone se trouvait il y a des jours.
+  if (vues[0].ageGPSMin !== null && vues[0].ageGPSMin > 240) {
+    retourInv('err', '❌ Position périmée (' + ageTexte(vues[0].dateGPS) + ') — ' +
+      'elle indique où le téléphone était, pas où vous êtes. Réparez d\'abord la ' +
+      'publication GPS, ou saisissez les coordonnées à la main dans l\'onglet Install.');
+    return;
+  }
   var lat = vues[0].lat, lon = vues[0].lon;
   var ecart = Math.round(vues[0].dist * 1000);
   var rayon = Math.max(nombreValide(d.params.rayon, 0.3), 0.3);
