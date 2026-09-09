@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.2.0</title>
+<title>CameraOnOff — v2.3.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1466,7 +1466,7 @@
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
   <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.2.0</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.3.0</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1835,8 +1835,16 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.2.0';
+window.APP_VERSION = '2.3.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.3.0', date: '09/09/2026',
+    resume: "Dialogue avec cameraServer.py v1.1.0 : la version du serveur est lue " +
+            "dans /status et affichée dans le diagnostic (avec alerte si elle est " +
+            "trop ancienne), et un bouton « Bilan de santé » interroge la nouvelle " +
+            "route /sante (uptime, PID, schéma, dashboard servi, fichiers présents, " +
+            "état de localisation.py)."
+  },
   {
     v: '2.2.0', date: '09/09/2026',
     resume: "Correction majeure : ouverte en file://, la page construisait " +
@@ -2270,8 +2278,12 @@ async function sonder(sonde) {
     }
     if (sonde.id === 'serveur') {
       var noms = (data && data.cameras) ? Object.keys(data.cameras) : [];
-      res.detail = noms.length ? (noms.length + ' caméra(s) déclarée(s)') : 'aucune caméra déclarée par le serveur';
+      var vs = (data && data.version_serveur) || null;
+      ETAT.versionServeur = vs;
+      res.detail = (vs ? 'cameraServer.py v' + vs + ' — ' : 'cameraServer.py (version non annoncée) — ') +
+                   (noms.length ? (noms.length + ' caméra(s) déclarée(s)') : 'aucune caméra déclarée');
       if (noms.length) memoriserCameras(noms);
+      LOG('PREFLIGHT', 'version du serveur : ' + (vs || 'inconnue (serveur < 1.1.0)'));
     }
     res.etat = 'ok';
     return res;
@@ -2456,7 +2468,9 @@ function rendreInstallation() {
   });
   h += '</tbody></table>' +
        '<button class="inst-btn" onclick="relancerPreflight()">🔄 Relancer le diagnostic</button>' +
-       '<span class="inst-note" id="inst-preflight-etat"></span></div>';
+       '<button class="inst-btn" onclick="bilanSante()">🩺 Bilan de santé du serveur</button>' +
+       '<span class="inst-note" id="inst-preflight-etat"></span>' +
+       '<div id="sante-zone" style="margin-top:12px"></div></div>';
 
   /* Inventaire */
   h += '<div class="inst-bloc"><h3>2 · Fichiers attendus</h3>' +
@@ -2772,6 +2786,52 @@ window.reinitialiserServeur = async function () {
   ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
   await preflight();
   rendreInstallation();
+};
+
+window.bilanSante = async function () {
+  var zone = document.getElementById('sante-zone');
+  if (!zone) return;
+  zone.innerHTML = '<div class="inst-detail">⏳ Interrogation de ' + echapper(BASE) + '/sante…</div>';
+  LOG('SANTE', 'appel de ' + BASE + '/sante');
+  try {
+    var opts = {}; var sig = signalTimeout(6000); if (sig) opts.signal = sig;
+    var r = await fetchNatif(BASE + '/sante?t=' + Date.now(), opts);
+    if (r.status === 404) {
+      zone.innerHTML = '<div class="inst-detail" style="color:#f59e0b">⚠️ Route /sante absente : ' +
+        'votre cameraServer.py est antérieur à la v1.1.0.</div>';
+      return;
+    }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var d = await r.json();
+    var lignes = [
+      ['Version du serveur', d.version_serveur],
+      ['PID / port / schéma', d.pid + ' · ' + d.port + ' · ' + d.schema + (d.https ? ' (TLS)' : '')],
+      ['Actif depuis', d.uptime_lisible],
+      ['Dossier', d.dossier],
+      ['Dashboard servi', d.dashboard_servi || '❌ aucun'],
+      ['Caméras occupées', d.camera_busy ? 'oui' : 'non'],
+      ['File d\'attente / threads', d.file_attente + ' · ' + d.threads_actifs],
+      ['Modes proximité / actualisation', (d.mode_proximite ? 'ON' : 'off') + ' · ' + (d.mode_actualisation ? 'ON' : 'off')],
+      ['localisation.py (8282)', d.localisation_py.etat + (d.localisation_py.detail ? ' — ' + d.localisation_py.detail : '')]
+    ];
+    var h = '<table class="inst-table"><tbody>';
+    lignes.forEach(function (l) {
+      h += '<tr><td style="white-space:nowrap;color:#8b9198">' + echapper(l[0]) + '</td><td>' + echapper(l[1]) + '</td></tr>';
+    });
+    var presents = [], absents = [];
+    Object.keys(d.fichiers || {}).forEach(function (f) {
+      (d.fichiers[f].present ? presents : absents).push(f);
+    });
+    h += '<tr><td style="color:#8b9198">Fichiers présents</td><td style="color:#22c55e">' +
+         (presents.length ? echapper(presents.join(' · ')) : '—') + '</td></tr>';
+    h += '<tr><td style="color:#8b9198">Fichiers absents</td><td style="color:#f59e0b">' +
+         (absents.length ? echapper(absents.join(' · ')) : '—') + '</td></tr></tbody></table>';
+    zone.innerHTML = h;
+    LOG('SANTE', 'bilan reçu — serveur v' + d.version_serveur + ', uptime ' + d.uptime_lisible);
+  } catch (e) {
+    zone.innerHTML = '<div class="inst-detail" style="color:#ef4444">❌ ' + echapper(e.message) + '</div>';
+    LOG('SANTE', 'échec : ' + e.message);
+  }
 };
 
 window.relancerPreflight = async function () {
