@@ -1854,8 +1854,28 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.5.0';
+window.APP_VERSION = '2.7.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.7.0', date: '09/09/2026',
+    resume: "Deux tests qui manquaient à l'investigation. Maillon 0 : l'API GitHub " +
+            "est interrogée pour dater le dernier commit de chaque iphone*.txt — " +
+            "c'est la signature exacte d'un Raccourci iOS qui a cessé de publier, " +
+            "en amont de toute la chaîne. Et test de validité des tokens GitHub " +
+            "trouvés en mémoire locale : identité, portées, date d'expiration et " +
+            "droit d'écriture sur le dépôt de localisation."
+  },
+  {
+    v: '2.6.0', date: '09/09/2026',
+    resume: "Investigation affinée après un cas réel que la v2.5.0 avait manqué. " +
+            "Distinction entre l'heure de LECTURE du fichier et l'heure du POINT GPS " +
+            "lui-même (champ Date), avec lecture des dates françaises longues " +
+            "(« 31 août 2026 à 20:00 ») : une position figée depuis des jours et relue " +
+            "toutes les 30 min paraissait fraîche. Nouvelle cause en tête quand toutes " +
+            "les personnes sont au même endroit à faible distance du seuil : ce sont les " +
+            "coordonnées de laMaison qui sont décalées, avec un bouton pour les corriger " +
+            "en un clic depuis la position observée."
+  },
   {
     v: '2.5.0', date: '09/09/2026',
     resume: "Nouvel onglet 🔬 Investigation, dédié au cas « présent à la maison mais " +
@@ -3106,8 +3126,25 @@ window.INV = INV;
 /* date_enregistrement arrive en français ("09/09/2026 14:32:10"),
    parfois en ISO. On accepte les deux et on renvoie null si illisible
    plutôt que de produire une NaN silencieuse. */
+var MOIS_FR = { 'janv': 0, 'févr': 1, 'fevr': 1, 'mars': 2, 'avr': 3, 'mai': 4, 'juin': 5,
+                'juil': 6, 'août': 7, 'aout': 7, 'sept': 8, 'oct': 9, 'nov': 10, 'déc': 11, 'dec': 11 };
+
 function parserDate(txt) {
   if (!txt || typeof txt !== 'string') return null;
+
+  // Format écrit par le Raccourci iOS : « 31 août 2026 à 20:00 ».
+  // Non reconnu jusqu'en v2.5.0, il ressortait en « date illisible » —
+  // masquant précisément le fait que le point GPS était vieux de neuf jours.
+  var f = txt.match(/(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})(?:\s+à\s+(\d{1,2})\s*[:h]\s*(\d{2}))?/);
+  if (f) {
+    var cle = f[2].toLowerCase().slice(0, 4);
+    var mois = MOIS_FR[cle];
+    if (mois === undefined) mois = MOIS_FR[cle.slice(0, 3)];
+    if (mois !== undefined) {
+      return new Date(+f[3], mois, +f[1], +(f[4] || 0), +(f[5] || 0), 0);
+    }
+  }
+
   var m = txt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (m) {
     return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0));
@@ -3140,6 +3177,104 @@ function distanceKmInv(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 window.distanceKmInv = distanceKmInv;
+
+/* ── Maillon 0 : la publication elle-même ───────────────────
+   Le token du Raccourci vit sur l'iPhone : la page ne peut pas le lire.
+   En revanche la DATE DU DERNIER COMMIT est publique et dit sans ambiguïté
+   si le téléphone écrit encore. C'est le test qui manquait. */
+function analyserURLDepot(url) {
+  // https://raw.githubusercontent.com/<owner>/<repo>/refs/heads/<branche>/<chemin>
+  // ou  https://raw.githubusercontent.com/<owner>/<repo>/<branche>/<chemin>
+  var m = String(url).match(
+    /^https?:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/(?:refs\/heads\/)?([^\/]+)\/(.+)$/);
+  if (!m) return null;
+  return { owner: m[1], repo: m[2], branche: m[3], chemin: m[4].split('?')[0] };
+}
+
+async function derniersCommits(depot, token) {
+  var entetes = { 'Accept': 'application/vnd.github+json' };
+  if (token) entetes.Authorization = 'Bearer ' + token;
+  var api = 'https://api.github.com/repos/' + depot.owner + '/' + depot.repo +
+            '/commits?path=' + encodeURIComponent(depot.chemin) + '&per_page=5';
+  var opts = { headers: entetes };
+  var sig = signalTimeout(8000); if (sig) opts.signal = sig;
+  var r = await fetchNatif(api, opts);
+  var reste = r.headers.get('x-ratelimit-remaining');
+  if (!r.ok) {
+    var msg = 'HTTP ' + r.status;
+    if (r.status === 403 && reste === '0') msg += ' — quota API GitHub épuisé, réessayez dans une heure';
+    if (r.status === 404) msg += ' — dépôt privé ou chemin introuvable';
+    throw new Error(msg);
+  }
+  var liste = await r.json();
+  return liste.map(function (c) {
+    return {
+      date: new Date(c.commit.committer.date),
+      message: (c.commit.message || '').split('\n')[0].slice(0, 60),
+      auteur: (c.commit.committer.name || '?')
+    };
+  });
+}
+
+/* ── Tokens GitHub trouvés en mémoire locale ─────────────────
+   Ce ne sont pas ceux du Raccourci, mais s'ils viennent du même lot,
+   leur expiration explique la panne. Jamais affichés en entier. */
+function tokensLocaux() {
+  var trouves = [];
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var cle = localStorage.key(i);
+      var val = localStorage.getItem(cle);
+      if (typeof val !== 'string') continue;
+      var m = val.match(/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/);
+      if (m && !trouves.some(function (t) { return t.token === m[1]; })) {
+        trouves.push({ cle: cle, token: m[1] });
+      }
+    }
+  } catch (e) {}
+  return trouves;
+}
+
+function masquer(t) {
+  if (!t) return '?';
+  return t.slice(0, 7) + '…' + t.slice(-4) + ' (' + t.length + ' car.)';
+}
+
+async function testerToken(entree, depot) {
+  var res = { cle: entree.cle, masque: masquer(entree.token) };
+  try {
+    var opts = { headers: { 'Authorization': 'Bearer ' + entree.token,
+                            'Accept': 'application/vnd.github+json' } };
+    var sig = signalTimeout(8000); if (sig) opts.signal = sig;
+    var r = await fetchNatif('https://api.github.com/user', opts);
+    res.code = r.status;
+    res.expiration = r.headers.get('github-authentication-token-expiration');
+    res.portees = r.headers.get('x-oauth-scopes');
+    if (r.status === 401) { res.etat = 'invalide'; res.detail = 'refusé (401) — révoqué ou expiré'; return res; }
+    if (!r.ok) { res.etat = 'erreur'; res.detail = 'HTTP ' + r.status; return res; }
+    var u = await r.json();
+    res.login = u.login;
+    res.etat = 'valide';
+
+    if (depot) {
+      var o2 = { headers: opts.headers };
+      var s2 = signalTimeout(8000); if (s2) o2.signal = s2;
+      var rr = await fetchNatif('https://api.github.com/repos/' + depot.owner + '/' + depot.repo, o2);
+      if (rr.ok) {
+        var d = await rr.json();
+        res.ecriture = !!(d.permissions && d.permissions.push);
+        res.depot = depot.owner + '/' + depot.repo;
+      } else {
+        res.ecriture = false;
+        res.depot = depot.owner + '/' + depot.repo + ' (HTTP ' + rr.status + ')';
+      }
+    }
+    return res;
+  } catch (e) {
+    res.etat = 'erreur'; res.detail = e.message;
+    return res;
+  }
+}
 
 /* ── Collecte : on interroge chaque maillon séparément ───────── */
 async function jsonSur(chemin, options) {
@@ -3217,9 +3352,17 @@ async function collecterInvestigation() {
       if (lat !== null && !isNaN(lat) && lon !== null && !isNaN(lon)) {
         p.trouve = true;
         p.lat = lat; p.lon = lon;
-        p.dateTexte = e.date_enregistrement || e.date_lisible || e.date || '?';
+        p.dateTexte = e.date_enregistrement || e.date_lisible || '?';
         p.date = parserDate(p.dateTexte);
         p.ageMin = ageMinutes(p.date);
+        // « date » est l'horodatage du POINT GPS écrit par le téléphone ;
+        // « date_enregistrement » n'est que l'heure à laquelle localisation.py
+        // a relu le fichier. Confondre les deux fait passer une position figée
+        // depuis des jours pour un relevé de quelques minutes.
+        p.dateGPSTexte = e.date || null;
+        p.dateGPS = parserDate(p.dateGPSTexte);
+        p.ageGPSMin = ageMinutes(p.dateGPS);
+        p.adresse = e.localisation || null;
         p.brut = e;
       }
     }
@@ -3257,6 +3400,40 @@ async function collecterInvestigation() {
     }
     d.sources.push(src);
   }
+
+  // ── Maillon 0 : publication GitHub + tokens ──
+  d.depots = [];
+  var premierDepot = null;
+  for (var j = 0; j < d.urls.length; j++) {
+    var dep = analyserURLDepot(d.urls[j]);
+    var info = { url: d.urls[j], nom: d.urls[j].split('/').pop(), depot: dep };
+    if (!dep) {
+      info.erreur = 'URL non reconnue comme un fichier brut GitHub';
+    } else {
+      if (!premierDepot) premierDepot = dep;
+      try {
+        info.commits = await derniersCommits(dep);
+        if (info.commits.length) {
+          info.dernier = info.commits[0].date;
+          info.ageMin = ageMinutes(info.dernier);
+          if (info.commits.length > 1) {
+            info.cadenceMin = (info.commits[0].date - info.commits[1].date) / 60000;
+          }
+        }
+      } catch (e) {
+        info.erreur = e.message;
+      }
+    }
+    d.depots.push(info);
+  }
+
+  d.tokens = [];
+  var listeTokens = tokensLocaux();
+  for (var k2 = 0; k2 < listeTokens.length; k2++) {
+    d.tokens.push(await testerToken(listeTokens[k2], premierDepot));
+  }
+  LOG('INVEST', 'maillon 0 : ' + d.depots.length + ' dépôt(s) interrogé(s), ' +
+      d.tokens.length + ' token(s) local(aux) testé(s)');
 
   d.versions = {
     page: window.APP_VERSION,
@@ -3301,6 +3478,27 @@ function analyserInvestigation(d) {
       "Passez le rayon à 0,3–1 km dans l'onglet Install.");
   }
 
+  // ── Toutes les personnes au même endroit, juste au-delà du seuil :
+  //    ce ne sont pas les gens qui sont loin, ce sont les coordonnées de
+  //    laMaison qui sont décalées. C'est la cause que la v2.5.0 a manquée.
+  var vues = d.personnes.filter(function (p) { return p.trouve && p.dist !== undefined; });
+  if (vues.length && vues.every(function (p) { return !p.proche; })) {
+    var memeEndroit = vues.every(function (p) {
+      return distanceKmInv(p.lat, p.lon, vues[0].lat, vues[0].lon) < 0.1;
+    });
+    var dm = vues[0].dist;
+    if (memeEndroit && dm < 3) {
+      ajouter(1, "laMaison est probablement mal située (" + Math.round(dm * 1000) + " m d'écart)",
+        (vues.length > 1 ? "Les " + vues.length + " personnes sont " : "La personne est ") +
+        "au même endroit, à " + Math.round(dm * 1000) + " m des coordonnées enregistrées de laMaison" +
+        (vues[0].adresse ? " — adresse relevée : " + vues[0].adresse : "") +
+        ". Si c'est votre domicile, ce sont les coordonnées de laMaison qui sont fausses, " +
+        "pas la position des téléphones. Avec un rayon de " + d.params.rayon +
+        " km, être détecté présent est impossible.",
+        "Bouton « 🏠 Adopter la position relevée » ci-dessous, ou saisie manuelle dans l'onglet Install.");
+    }
+  }
+
   var periode = d.periode || null;
   d.personnes.forEach(function (p) {
     if (!p.trouve) {
@@ -3308,6 +3506,20 @@ function analyserInvestigation(d) {
         "Aucune entrée exploitable dans l'historique pour ce fichier.",
         "Vérifiez que le Raccourci iOS de cette personne fonctionne.");
       return;
+    }
+    // Le point GPS lui-même : c'est lui qui dit si le téléphone publie encore.
+    if (p.ageGPSMin !== null && p.ageGPSMin > 1440) {
+      ajouter(1, "Le point GPS de " + p.nom + " est figé depuis " + ageTexte(p.dateGPS),
+        "Le fichier est bien relu régulièrement (dernière lecture il y a " + ageTexte(p.date) +
+        "), mais son champ Date n'a pas bougé : le Raccourci iOS ne publie plus de nouvelle " +
+        "position. La présence détectée ne reflète donc plus la réalité, dans un sens comme " +
+        "dans l'autre — y compris quand vous serez réellement partis.",
+        "Vérifiez sur le téléphone l'automatisation du Raccourci et l'autorisation de " +
+        "localisation « Toujours » en arrière-plan.");
+    } else if (p.ageGPSMin !== null && p.ageGPSMin > 240) {
+      ajouter(2, "Point GPS de " + p.nom + " ancien (" + ageTexte(p.dateGPS) + ")",
+        "Le téléphone n'a pas publié de position récente.",
+        "Vérifiez le Raccourci iOS.");
     }
     if (p.ageMin !== null && periode && p.ageMin > periode * 1.5) {
       ajouter(1, "Position de " + p.nom + " périmée (" + ageTexte(p.date) + ")",
@@ -3332,6 +3544,75 @@ function analyserInvestigation(d) {
       ajouter(1, "Latitude hors bornes pour " + p.nom + " (" + p.lat + ")",
         "Une latitude valide est comprise entre -90 et 90 : latitude et longitude sont probablement inversées.",
         "Vérifiez le format écrit par le Raccourci iOS.");
+    }
+  });
+
+  // ── Maillon 0 : le téléphone publie-t-il encore ? ──
+  // C'est la cause la plus en amont : si le commit est vieux, tout le reste
+  // de la chaîne est cohérent mais travaille sur une donnée morte.
+  d.depots.forEach(function (dep) {
+    if (dep.erreur) {
+      ajouter(2, "Impossible de dater les publications de " + dep.nom,
+        dep.erreur, "Vérifiez l'URL dans coordonnees.txt, ou réessayez plus tard.");
+      return;
+    }
+    if (!dep.dernier) return;
+    if (dep.ageMin > 360) {
+      ajouter(1, "Le Raccourci iOS de " + dep.nom + " ne publie plus depuis " + ageTexte(dep.dernier),
+        "Dernier commit sur GitHub le " + dep.dernier.toLocaleString('fr-FR') +
+        (dep.cadenceMin ? ", après une cadence d'environ " + Math.round(dep.cadenceMin) + " min" : "") +
+        ". Le téléphone n'écrit plus : tout le reste de la chaîne fonctionne, " +
+        "mais sur une position morte.",
+        "Lancez le Raccourci à la main sur l'iPhone. S'il échoue sur l'appel GitHub, " +
+        "c'est le token ; s'il réussit, c'est le déclencheur d'automatisation.");
+    } else if (dep.ageMin > 120) {
+      ajouter(2, "Publication de " + dep.nom + " en retard (" + ageTexte(dep.dernier) + ")",
+        "Dernier commit GitHub il y a plus de deux heures.",
+        "Surveillez : si l'écart se creuse, le Raccourci a cessé de tourner.");
+    }
+  });
+
+  // Deux téléphones arrêtés le même jour → cause commune, typiquement le token
+  var muets = d.depots.filter(function (x) { return x.dernier && x.ageMin > 360; });
+  if (muets.length > 1) {
+    var ecartH = Math.abs(muets[0].dernier - muets[1].dernier) / 3600000;
+    if (ecartH < 48) {
+      ajouter(1, "Les " + muets.length + " téléphones ont cessé de publier le même jour",
+        "Deux appareils ne tombent pas en panne ensemble : la cause est partagée. " +
+        "Le suspect le plus probable est le token GitHub commun aux deux Raccourcis, " +
+        "expiré ou révoqué.",
+        "Vérifiez la date d'expiration sur github.com/settings/tokens, puis " +
+        "remplacez-le dans les deux Raccourcis.");
+    }
+  }
+
+  // Tokens locaux
+  d.tokens.forEach(function (t) {
+    if (t.etat === 'invalide') {
+      ajouter(1, "Token GitHub invalide en mémoire locale (" + t.cle + ")",
+        "Le token " + t.masque + " est refusé par GitHub. S'il s'agit du même que " +
+        "celui des Raccourcis iOS, c'est la cause directe de l'arrêt des publications.",
+        "Régénérez-le et reportez-le dans les Raccourcis et vos autres applications.");
+      return;
+    }
+    if (t.etat === 'valide' && t.expiration) {
+      var exp = new Date(t.expiration.replace(' UTC', 'Z').replace(' ', 'T'));
+      var jours = (exp - Date.now()) / 86400000;
+      if (isFinite(jours) && jours < 0) {
+        ajouter(1, "Token GitHub expiré (" + t.cle + ")",
+          "Expiration : " + t.expiration + ".",
+          "Régénérez-le et mettez à jour les Raccourcis iOS.");
+      } else if (isFinite(jours) && jours < 14) {
+        ajouter(2, "Token GitHub bientôt expiré (" + t.cle + ")",
+          "Expire dans " + Math.round(jours) + " jour(s) — le " + t.expiration + ".",
+          "Anticipez le renouvellement pour éviter un nouvel arrêt silencieux.");
+      }
+    }
+    if (t.etat === 'valide' && t.ecriture === false) {
+      ajouter(2, "Token sans droit d'écriture sur " + (t.depot || 'le dépôt'),
+        "Le token " + t.masque + " est valide mais ne peut pas écrire : un Raccourci " +
+        "qui l'utiliserait échouerait silencieusement.",
+        "Ajoutez la portée « Contents : read and write » sur ce dépôt.");
     }
   });
 
@@ -3410,6 +3691,7 @@ function rendreInvestigation() {
       '<button class="inst-btn vert" onclick="lancerInvestigation()">🔍 Collecter maintenant</button>' +
       '<button class="inst-btn" onclick="forcerLectureGPS()">⚡ Forcer une lecture GPS</button>' +
       '<button class="inst-btn" onclick="comparerPositionReelle()">📍 Comparer à ma position réelle</button>' +
+      '<button class="inst-btn" onclick="adopterPositionRelevee()">🏠 Adopter la position relevée comme laMaison</button>' +
       '<button class="inst-btn" onclick="copierSynthese()">📋 Copier la synthèse pour analyse</button>' +
     '</div><div class="inst-feedback" id="inv-feedback"></div></div>';
 
@@ -3424,19 +3706,24 @@ function rendreInvestigation() {
   h += '<div class="inst-bloc"><h3>1 · Verdict actuel</h3>' +
     '<div class="inst-sous">Distance recalculée ici même, indépendamment du calcul du dashboard. ' +
     'Collecte du ' + echapper(d.instant.toLocaleString('fr-FR')) + '.</div>' +
-    '<table class="inst-table"><thead><tr><th>Personne</th><th>Position</th><th>Âge du relevé</th>' +
-    '<th>Distance</th><th>Verdict</th></tr></thead><tbody>';
+    '<table class="inst-table"><thead><tr><th>Personne</th><th>Position</th><th>Lecture</th>' +
+    '<th>Point GPS</th><th>Distance</th><th>Verdict</th></tr></thead><tbody>';
   d.personnes.forEach(function (p) {
     if (!p.trouve) {
-      h += '<tr><td>' + echapper(p.nom) + '</td><td colspan="4">' +
+      h += '<tr><td>' + echapper(p.nom) + '</td><td colspan="5">' +
            badge('aucune position exploitable', '#ef4444') + '</td></tr>';
       return;
     }
     var vieux = (d.periode && p.ageMin > d.periode * 1.5);
-    h += '<tr><td>' + echapper(p.nom) + '<div class="inst-detail">' + p.entrees + ' relevé(s)</div></td>' +
+    var gpsVieux = (p.ageGPSMin !== null && p.ageGPSMin > 240);
+    h += '<tr><td>' + echapper(p.nom) + '<div class="inst-detail">' + p.entrees + ' relevé(s)' +
+      (p.adresse ? '<br>' + echapper(p.adresse) : '') + '</div></td>' +
       '<td class="inst-detail">' + p.lat.toFixed(5) + '<br>' + p.lon.toFixed(5) + '</td>' +
       '<td>' + badge(ageTexte(p.date), vieux ? '#ef4444' : '#22c55e') +
       '<div class="inst-detail">' + echapper(p.dateTexte) + '</div></td>' +
+      '<td>' + (p.dateGPS ? badge(ageTexte(p.dateGPS), gpsVieux ? '#ef4444' : '#22c55e')
+                          : badge('non daté', '#8b9198')) +
+      '<div class="inst-detail">' + echapper(p.dateGPSTexte || '—') + '</div></td>' +
       '<td>' + (p.dist === undefined ? '—' : p.dist.toFixed(3) + ' km') +
       '<div class="inst-detail">seuil ' + d.params.rayon + ' km</div></td>' +
       '<td>' + (p.proche ? badge('🏠 PROCHE', '#22c55e') : badge('🚗 LOIN', '#f59e0b')) + '</td></tr>';
@@ -3462,8 +3749,55 @@ function rendreInvestigation() {
   });
   h += '</div>';
 
+  /* 2 bis · Publication GitHub et tokens */
+  h += '<div class="inst-bloc"><h3>3 · Maillon 0 — publication depuis les iPhones</h3>' +
+    '<div class="inst-sous">Date du dernier commit de chaque fichier, lue sur l\'API GitHub. ' +
+    'C\'est le seul test qui distingue « le téléphone n\'écrit plus » de « le serveur n\'a pas relu ».</div>' +
+    '<table class="inst-table"><thead><tr><th>Fichier</th><th>Dernier envoi</th>' +
+    '<th>Cadence</th><th>Historique récent</th></tr></thead><tbody>';
+  d.depots.forEach(function (dep) {
+    if (dep.erreur) {
+      h += '<tr><td>' + echapper(dep.nom) + '</td><td colspan="3">' +
+           badge(dep.erreur, '#f59e0b') + '</td></tr>';
+      return;
+    }
+    var vieux = dep.ageMin > 360;
+    h += '<tr><td>' + echapper(dep.nom) +
+      '<div class="inst-detail">' + echapper(dep.depot ? dep.depot.owner + '/' + dep.depot.repo : '') + '</div></td>' +
+      '<td>' + (dep.dernier ? badge(ageTexte(dep.dernier), vieux ? '#ef4444' : '#22c55e') +
+        '<div class="inst-detail">' + echapper(dep.dernier.toLocaleString('fr-FR')) + '</div>'
+        : badge('aucun commit', '#8b9198')) + '</td>' +
+      '<td class="inst-detail">' + (dep.cadenceMin ? Math.round(dep.cadenceMin) + ' min' : '—') + '</td>' +
+      '<td class="inst-detail">' + (dep.commits || []).slice(0, 3).map(function (c) {
+        return c.date.toLocaleString('fr-FR') + ' — ' + echapper(c.message);
+      }).join('<br>') + '</td></tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<div class="inst-sous" style="margin-top:14px">Tokens GitHub trouvés en mémoire locale. ' +
+    'Ce ne sont pas ceux des Raccourcis iOS — la page ne peut pas les lire — mais s\'ils ' +
+    'proviennent du même lot, leur expiration explique l\'arrêt des publications.</div>';
+  if (!d.tokens.length) {
+    h += '<div class="inst-detail">Aucun token GitHub en mémoire locale sur ce navigateur.</div>';
+  } else {
+    h += '<table class="inst-table"><thead><tr><th>Origine</th><th>Token</th><th>État</th>' +
+         '<th>Expiration</th><th>Écriture</th></tr></thead><tbody>';
+    d.tokens.forEach(function (t) {
+      var coul = t.etat === 'valide' ? '#22c55e' : (t.etat === 'invalide' ? '#ef4444' : '#f59e0b');
+      h += '<tr><td class="inst-detail">' + echapper(t.cle) + '</td>' +
+        '<td class="inst-detail">' + echapper(t.masque) + '</td>' +
+        '<td>' + badge(t.etat + (t.login ? ' — ' + t.login : ''), coul) +
+        (t.detail ? '<div class="inst-detail">' + echapper(t.detail) + '</div>' : '') + '</td>' +
+        '<td class="inst-detail">' + echapper(t.expiration || 'sans expiration') + '</td>' +
+        '<td>' + (t.ecriture === undefined ? '<span class="inst-detail">—</span>'
+                  : badge(t.ecriture ? 'oui' : 'non', t.ecriture ? '#22c55e' : '#ef4444')) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  h += '</div>';
+
   /* 3 · La chaîne, maillon par maillon */
-  h += '<div class="inst-bloc"><h3>3 · La chaîne, maillon par maillon</h3>' +
+  h += '<div class="inst-bloc"><h3>4 · La chaîne, maillon par maillon</h3>' +
     '<div class="inst-sous">Chaque étape est interrogée séparément : c\'est la comparaison entre ' +
     'les maillons 1 et 2 qui dit si le retard vient du téléphone ou du cycle de lecture.</div>' +
     '<table class="inst-table"><thead><tr><th>Maillon</th><th>État</th><th>Ce qu\'il contient</th></tr></thead><tbody>';
@@ -3504,7 +3838,7 @@ function rendreInvestigation() {
   /* 4 · Simulateur */
   var cfgLat = Number.isFinite(d.params.lat) ? d.params.lat : '';
   var cfgLon = Number.isFinite(d.params.lon) ? d.params.lon : '';
-  h += '<div class="inst-bloc"><h3>4 · Simulateur de position</h3>' +
+  h += '<div class="inst-bloc"><h3>5 · Simulateur de position</h3>' +
     '<div class="inst-sous">Saisissez des coordonnées pour voir le verdict qu\'elles produiraient. ' +
     'Saisir les coordonnées réelles de la maison doit donner une distance quasi nulle : si ce n\'est ' +
     'pas le cas, ce sont les paramètres de laMaison qui sont faux.</div>' +
@@ -3518,7 +3852,7 @@ function rendreInvestigation() {
     '</div><div class="inst-feedback" id="sim-resultat"></div></div>';
 
   /* 5 · Réponses brutes */
-  h += '<div class="inst-bloc"><h3>5 · Réponses brutes</h3>' +
+  h += '<div class="inst-bloc"><h3>6 · Réponses brutes</h3>' +
     '<div class="inst-sous">Ce que chaque route a réellement répondu, sans interprétation.</div>' +
     '<table class="inst-table"><thead><tr><th>Route</th><th>Code</th><th>Durée</th><th>Extrait</th></tr></thead><tbody>';
   var routes = { distances: '/loc/distances', periode: '/loc/periode', coordonnees: '/loc/coordonnees',
@@ -3536,7 +3870,7 @@ function rendreInvestigation() {
   h += '</tbody></table></div>';
 
   /* 6 · Synthèse */
-  h += '<div class="inst-bloc"><h3>6 · Synthèse pour analyse</h3>' +
+  h += '<div class="inst-bloc"><h3>7 · Synthèse pour analyse</h3>' +
     '<div class="inst-sous">Tout ce qui précède, plus les versions et le journal, dans un texte ' +
     'unique à copier-coller pour analyse.</div>' +
     '<div class="inst-actions">' +
@@ -3565,6 +3899,51 @@ window.lancerInvestigation = async function () {
   await collecterInvestigation();
   rendreInvestigation();
   retourInv('ok', '✅ Collecte terminée à ' + new Date().toLocaleTimeString('fr-FR'));
+};
+
+/* Corrige laMaison à partir de la position réellement relevée : le cas le
+   plus fréquent est un décalage de quelques centaines de mètres hérité d'une
+   ancienne saisie. */
+window.adopterPositionRelevee = async function () {
+  var d = INV.donnees;
+  if (!d) { retourInv('warn', '⚠️ Lancez d\'abord « Collecter maintenant »'); return; }
+  var vues = d.personnes.filter(function (p) { return p.trouve; });
+  if (!vues.length) { retourInv('err', '❌ Aucune position relevée'); return; }
+  var lat = vues[0].lat, lon = vues[0].lon;
+  var ecart = Math.round(vues[0].dist * 1000);
+  var rayon = Math.max(nombreValide(d.params.rayon, 0.3), 0.3);
+  if (!window.confirm(
+      'Remplacer les coordonnées de laMaison\n\n' +
+      'Actuel  : ' + d.params.lat + ' / ' + d.params.lon + '  (rayon ' + d.params.rayon + ' km)\n' +
+      'Nouveau : ' + lat.toFixed(5) + ' / ' + lon.toFixed(5) + '  (rayon ' + rayon + ' km)\n\n' +
+      'Écart corrigé : ' + ecart + ' m' +
+      (vues[0].adresse ? '\nAdresse relevée : ' + vues[0].adresse : '') +
+      '\n\nÀ ne faire que si vous êtes actuellement chez vous.')) {
+    retourInv('info', 'Annulé.');
+    return;
+  }
+  retourInv('info', '⏳ Enregistrement…');
+  try {
+    var charge = {
+      maison_lat: lat, maison_lon: lon, maison_rayon_km: rayon,
+      nettoyage_seuil_m: nombreValide((d.etapes.distances.data || {}).distances &&
+                                      d.etapes.distances.data.distances.nettoyage_seuil_m, 500),
+      carte_filtre_km: nombreValide((d.etapes.distances.data || {}).distances &&
+                                    d.etapes.distances.data.distances.carte_filtre_km, 1)
+    };
+    var r = await window.fetch(BASE + '/loc/distances', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(charge) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    window.majParamsMaison(charge, 'serveur');
+    LOG('INVEST', 'laMaison corrigée : ' + lat.toFixed(5) + '/' + lon.toFixed(5) + ' rayon ' + rayon);
+    retourInv('ok', '✅ laMaison enregistrée en ' + lat.toFixed(5) + ' / ' + lon.toFixed(5) +
+                    ' (rayon ' + rayon + ' km) — nouvelle collecte…');
+    await collecterInvestigation();
+    rendreInvestigation();
+  } catch (e) {
+    retourInv('err', '❌ ' + e.message);
+  }
 };
 
 window.forcerLectureGPS = async function () {
@@ -3677,9 +4056,33 @@ function construireSynthese() {
   d.personnes.forEach(function (p) {
     if (!p.trouve) { L.push('- ' + p.nom + ' : AUCUNE position exploitable'); return; }
     L.push('- ' + p.nom + ' : ' + p.lat.toFixed(5) + ' / ' + p.lon.toFixed(5) +
-           ' · ' + p.dateTexte + ' (' + ageTexte(p.date) + ')' +
+           (p.adresse ? ' · ' + p.adresse : '') +
+           ' · lu ' + p.dateTexte + ' (' + ageTexte(p.date) + ')' +
+           ' · point GPS ' + (p.dateGPSTexte || '?') + ' (' + ageTexte(p.dateGPS) + ')' +
            ' · ' + (p.dist === undefined ? '?' : p.dist.toFixed(3) + ' km') +
            ' → ' + (p.proche ? 'PROCHE' : 'LOIN') + ' · ' + p.entrees + ' relevé(s)');
+  });
+  L.push('');
+  L.push('## Maillon 0 — publication GitHub (dernier commit)');
+  d.depots.forEach(function (dep) {
+    if (dep.erreur) { L.push('- ' + dep.nom + ' : ERREUR ' + dep.erreur); return; }
+    L.push('- ' + dep.nom + ' : dernier commit ' +
+           (dep.dernier ? dep.dernier.toISOString() + ' (' + ageTexte(dep.dernier) + ')' : 'aucun') +
+           (dep.cadenceMin ? ' · cadence precedente ' + Math.round(dep.cadenceMin) + ' min' : ''));
+    (dep.commits || []).slice(0, 5).forEach(function (c) {
+      L.push('    ' + c.date.toISOString() + '  ' + c.message);
+    });
+  });
+  L.push('');
+  L.push('## Tokens GitHub en memoire locale');
+  if (!d.tokens.length) L.push('- aucun');
+  d.tokens.forEach(function (t) {
+    L.push('- ' + t.cle + ' : ' + t.masque + ' · ' + t.etat +
+           (t.login ? ' (' + t.login + ')' : '') +
+           ' · expiration ' + (t.expiration || 'aucune') +
+           (t.ecriture === undefined ? '' : ' · ecriture ' + (t.ecriture ? 'oui' : 'non')) +
+           (t.portees ? ' · portees ' + t.portees : '') +
+           (t.detail ? ' · ' + t.detail : ''));
   });
   L.push('');
   L.push('## Maillon 1 — fichiers sources sur GitHub (lus directement)');
