@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff</title>
+<title>CameraOnOff — v2.0.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -388,6 +388,160 @@
     margin-top: 12px;
     text-align: right;
   }
+
+/* ══════════════════════════════════════════
+   SUPERVISION v2.0.0 — bandeau, mode dégradé, onglet Installation
+════════════════════════════════════════════ */
+  /* ── Décalage des pages sous la barre d'onglets + bandeau ── */
+  #page-cameras, #page-localisation, #page-parametrage, #page-installation {
+    padding-top: var(--decalage-haut, 44px) !important;
+  }
+
+  /* ── Bouton de version dans la barre d'onglets ── */
+  #version-btn {
+    flex: 0 0 auto !important;
+    padding: 0 12px !important;
+    font-size: 11px !important;
+    color: #0e0f11 !important;
+    background: #60a5fa !important;
+    font-weight: 700;
+    letter-spacing: .06em !important;
+    border-bottom: 3px solid transparent !important;
+    cursor: pointer;
+  }
+  #version-btn:hover { background: #93c5fd !important; color: #0e0f11 !important; }
+
+  /* ── Pastille sur l'onglet Installation ── */
+  #tab-badge-installation {
+    display: inline-block;
+    min-width: 16px; height: 16px; line-height: 16px;
+    margin-left: 5px; padding: 0 4px;
+    border-radius: 8px; background: #ef4444; color: #fff;
+    font-size: 10px; font-weight: 700; text-align: center;
+  }
+
+  /* ── Bandeau d'alerte ── */
+  #preflight-banner {
+    position: fixed; top: 44px; left: 0; right: 0; z-index: 9998;
+    display: none; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    font-family: 'DM Sans', -apple-system, sans-serif; font-size: 13px;
+    border-bottom: 1px solid #2a2d33;
+    background: #2a2213; color: #fcd34d;
+  }
+  #preflight-banner.grave { background: #2b1416; color: #fca5a5; }
+  #preflight-banner .pb-texte { flex: 1; line-height: 1.4; }
+  #preflight-banner .pb-detail { font-size: 11.5px; opacity: .85; }
+  #preflight-banner .pb-btn {
+    flex: 0 0 auto; padding: 7px 12px; border-radius: 7px;
+    border: 1px solid currentColor; background: transparent; color: inherit;
+    font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  #preflight-banner .pb-btn:hover { background: rgba(255,255,255,.08); }
+
+  /* ── Mode dégradé : actions d'écriture neutralisées ── */
+  body.mode-degrade .toggle,
+  body.mode-degrade .btn-test,
+  body.mode-degrade #btnNettoyer,
+  body.mode-degrade #btn-lecture-immediate {
+    opacity: .4; pointer-events: none; cursor: not-allowed;
+  }
+
+  /* ── Page Installation ── */
+  #page-installation {
+    display: none;
+    background: #0e0f11; color: #e8eaf0; min-height: 100vh;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+  }
+  #page-installation .inst-wrap { max-width: 940px; margin: 0 auto; padding: 22px 16px 60px; }
+  #page-installation h2 { font-size: 19px; margin: 0 0 4px; color: #e8eaf0; }
+  #page-installation .inst-intro { color: #8b9198; font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+  .inst-bloc {
+    background: #12141a; border: 1px solid #2a2d33; border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .inst-bloc h3 { margin: 0 0 4px; font-size: 14px; color: #60a5fa; letter-spacing: .04em; }
+  .inst-sous { color: #8b9198; font-size: 12.5px; margin-bottom: 12px; line-height: 1.45; }
+  .inst-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .inst-table th {
+    text-align: left; color: #8b9198; font-weight: 500; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .08em;
+    padding: 6px 8px; border-bottom: 1px solid #2a2d33;
+  }
+  .inst-table td { padding: 8px; border-bottom: 1px solid #1c1f26; vertical-align: top; }
+  .inst-table code { color: #e8eaf0; font-family: 'DM Mono', monospace; font-size: 12px; }
+  .inst-detail { color: #8b9198; font-size: 11.5px; line-height: 1.45; }
+  .inst-remede td { background: rgba(96,165,250,.06); color: #cbd5e1; font-size: 12px; line-height: 1.5; }
+  .inst-cmd {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 0; border-bottom: 1px solid #1c1f26;
+  }
+  .inst-cmd-l { flex: 1 1 210px; font-size: 12.5px; color: #cbd5e1; }
+  .inst-cmd code {
+    flex: 2 1 300px; font-family: 'DM Mono', monospace; font-size: 11.5px;
+    background: #0e0f11; border: 1px solid #2a2d33; border-radius: 6px;
+    padding: 6px 8px; color: #7dd3fc; overflow-x: auto; white-space: nowrap;
+  }
+  .inst-btn {
+    background: #1c1f26; border: 1px solid #2a2d33; color: #e8eaf0;
+    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .inst-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+  .inst-btn.petit { padding: 6px 10px; font-size: 11.5px; }
+  .inst-btn.vert { border-color: #22c55e; color: #22c55e; }
+  .inst-btn.vert:hover { background: rgba(34,197,94,.1); }
+  .inst-note { color: #8b9198; font-size: 11.5px; margin-left: 8px; }
+  .inst-grille {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px; margin-bottom: 12px;
+  }
+  .inst-champ { display: flex; flex-direction: column; gap: 4px; }
+  .inst-champ label { font-size: 11.5px; color: #8b9198; }
+  .inst-champ input, #page-installation textarea {
+    background: #0e0f11; border: 1px solid #2a2d33; border-radius: 7px;
+    color: #e8eaf0; padding: 8px; font-size: 13px; width: 100%;
+    font-family: 'DM Mono', monospace; box-sizing: border-box;
+  }
+  .inst-champ input:focus, #page-installation textarea:focus { outline: none; border-color: #60a5fa; }
+  .inst-lab { display: block; font-size: 11.5px; color: #8b9198; margin: 12px 0 5px; }
+  .inst-lab code { color: #7dd3fc; }
+  .inst-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+  .inst-feedback { font-size: 12.5px; min-height: 18px; margin-bottom: 4px; }
+  .inst-journal {
+    background: #0e0f11; border: 1px solid #2a2d33; border-radius: 8px;
+    padding: 10px; height: 170px; overflow-y: auto;
+    font-family: 'DM Mono', monospace; font-size: 11.5px; line-height: 1.6;
+  }
+
+  /* ── Modal historique des versions ── */
+  #modal-version-overlay {
+    position: fixed; inset: 0; z-index: 10001;
+    background: rgba(0,0,0,.7); display: none;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  #modal-version-overlay.open { display: flex; }
+  #modal-version-box {
+    background: #12141a; border: 1px solid #2a2d33; border-radius: 14px;
+    max-width: 620px; width: 100%; max-height: 78vh; overflow-y: auto; padding: 20px;
+    font-family: 'DM Sans', -apple-system, sans-serif; color: #e8eaf0;
+  }
+  #modal-version-box h2 { margin: 0 0 14px; font-size: 17px; }
+  .ver-item { border-left: 2px solid #60a5fa; padding: 0 0 14px 12px; margin-bottom: 4px; }
+  .ver-num { font-family: 'DM Mono', monospace; font-size: 13px; color: #60a5fa; margin-bottom: 4px; }
+  .ver-date { color: #8b9198; font-size: 11.5px; margin-left: 6px; }
+  .ver-res { font-size: 12.5px; color: #cbd5e1; line-height: 1.55; }
+  #modal-version-close {
+    margin-top: 8px; background: #1c1f26; border: 1px solid #2a2d33; color: #e8eaf0;
+    border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer;
+  }
+
+  /* ── Barre d'onglets resserrée : 4 onglets + version sur iPhone ── */
+  @media (max-width: 560px) {
+    #tab-bar button { font-size: 10px !important; padding: 0 5px !important; letter-spacing: .03em !important; }
+    #version-btn { padding: 0 8px !important; font-size: 10px !important; }
+    #preflight-banner { font-size: 12px; padding: 8px 10px; gap: 8px; }
+  }
+
 </style>
 
 <!-- ══════════════════════════════════════════
@@ -1288,7 +1442,14 @@
   <button id="tab-btn-cameras"      class="active" onclick="showPage('cameras')">📷 Caméras Nest</button>
   <button id="tab-btn-localisation"             onclick="showPage('localisation')">📍 Localisation</button>
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
+  <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Installation<span id="tab-badge-installation" style="display:none">0</span></button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.0.0</button>
 </div>
+
+<!-- ══════════════════════════════════════════
+     BANDEAU D'ALERTE — rempli par le préflight
+════════════════════════════════════════════ -->
+<div id="preflight-banner"></div>
 
 <!-- ══════════════════════════════════════════
      PAGE 1 — Caméras Nest
@@ -1569,6 +1730,855 @@
 </div>
 
 <!-- ══════════════════════════════════════════
+     SCRIPT — SUPERVISION DE DÉMARRAGE (v2.0.0)
+     Doit rester AVANT tous les autres scripts : il installe le fetch
+     supervisé et hydrate la liste des caméras avant leur utilisation.
+════════════════════════════════════════════ -->
+<script>
+/* ══════════════════════════════════════════════════════════════
+   SUPERVISION DE DÉMARRAGE — cameras.html
+   Préflight, mode dégradé, cache de secours, panneau Installation.
+   Placé AVANT tous les autres scripts : installe le fetch supervisé
+   et hydrate la liste des caméras avant la construction du dashboard.
+   ══════════════════════════════════════════════════════════════ */
+(function () {
+"use strict";
+
+/* ── 1. Version de l'application ───────────────────────────── */
+window.APP_VERSION = '2.0.0';
+window.APP_HISTORIQUE = [
+  {
+    v: '2.0.0', date: '09/09/2026',
+    resume: "Démarrage à froid : préflight des 5 dépendances, mode dégradé avec back-off, " +
+            "correction du piège NaN sur les paramètres maison (blocage de l'automatisation " +
+            "tant qu'ils ne sont pas fiables), nouvel onglet Installation (inventaire des fichiers, " +
+            "commandes à copier, formulaire de configuration générant localisationParam.json), " +
+            "liste des caméras lue depuis le serveur, garde Leaflet, cache de secours, " +
+            "bouton de version avec historique."
+  },
+  {
+    v: '1.9.0', date: '08/09/2026',
+    resume: "État initial reçu (fichier sans numéro de version) : onglets Caméras Nest / " +
+            "Localisation / Paramétrage, test par caméra, modes proximité et actualisation, " +
+            "carte Leaflet, notifications Telegram."
+  }
+];
+
+/* ── 2. Cible réseau ───────────────────────────────────────── */
+var HOTE_SUP  = window.location.hostname || 'localhost';
+var PROTO_SUP = window.location.protocol || 'http:';
+var BASE      = PROTO_SUP + '//' + HOTE_SUP + ':8585';
+window.API_BASE = BASE;
+
+/* ── 3. Utilitaires ────────────────────────────────────────── */
+/* Déclaré ici (et pas en §9) : majParamsMaison peut journaliser dès le boot. */
+var journalSupervision = [];
+
+function nombreValide(v, defaut) {
+  var n = (typeof v === 'number') ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : defaut;
+}
+window.nombreValide = nombreValide;
+
+function echapper(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function signalTimeout(ms) {
+  // AbortSignal.timeout n'existe pas sur Safari < 16 (Big Sur) → repli manuel
+  try { if (AbortSignal && typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms); }
+  catch (e) { /* ignoré */ }
+  try {
+    var ctrl = new AbortController();
+    setTimeout(function () { try { ctrl.abort(); } catch (e2) {} }, ms);
+    return ctrl.signal;
+  } catch (e3) { return undefined; }
+}
+
+/* ── 4. Cache de secours (localStorage) ────────────────────── */
+var CLE_CONFIG = 'cam_config_v2';
+var CLE_CAMS   = 'cam_liste_v2';
+var CLE_POS    = 'cam_positions_v2';
+
+function lireCache(cle, defaut) {
+  try {
+    var brut = localStorage.getItem(cle);
+    if (!brut) return defaut;
+    var o = JSON.parse(brut);
+    return (o === null || o === undefined) ? defaut : o;
+  } catch (e) { return defaut; }
+}
+function ecrireCache(cle, valeur) {
+  try { localStorage.setItem(cle, JSON.stringify(valeur)); return true; }
+  catch (e) { return false; }
+}
+window.lireCache  = lireCache;
+window.ecrireCache = ecrireCache;
+
+/* ── 5. Liste des caméras : serveur → cache → repli codé en dur ──
+   Hydratation SYNCHRONE, avant que const CAMERAS ne soit évalué. */
+var camsCache = lireCache(CLE_CAMS, null);
+if (camsCache && Array.isArray(camsCache.noms) && camsCache.noms.length) {
+  window.CAMERAS_CONFIG = camsCache;
+}
+
+function memoriserCameras(noms) {
+  if (!Array.isArray(noms) || !noms.length) return;
+  var actuels = (window.CAMERAS_CONFIG && window.CAMERAS_CONFIG.noms) || [];
+  if (actuels.length === noms.length && actuels.every(function (n, i) { return n === noms[i]; })) return;
+  var icones = {}, libelles = {};
+  var ancienIc = (window.CAMERAS_CONFIG && window.CAMERAS_CONFIG.icones) || (window.ICONS || {});
+  var ancienLb = (window.CAMERAS_CONFIG && window.CAMERAS_CONFIG.libelles) || (window.LABELS || {});
+  noms.forEach(function (n) {
+    icones[n]   = ancienIc[n] || '📷';
+    libelles[n] = ancienLb[n] || n.replace(/^Cam[ée]ra\s*-\s*/i, '').trim();
+  });
+  ecrireCache(CLE_CAMS, { noms: noms, icones: icones, libelles: libelles, date: new Date().toISOString() });
+  ETAT.camsChangees = true;
+}
+
+/* ── 6. Paramètres « maison » — fin du piège NaN ────────────
+   parseFloat(undefined) vaut NaN, et ?? ne rattrape pas NaN :
+   on n'écrase donc les globales que si TOUTES les valeurs sont finies. */
+window.PARAMS_FIABLES = false;
+window.PARAMS_SOURCE  = 'defaut';
+
+window.majParamsMaison = function (d, source) {
+  d = d || {};
+  var lat   = nombreValide(d.maison_lat, null);
+  var lon   = nombreValide(d.maison_lon, null);
+  var rayon = nombreValide(d.maison_rayon_km, null);
+  var filtre = nombreValide(d.carte_filtre_km, null);
+
+  if (lat === null || lon === null || rayon === null) {
+    window.PARAMS_FIABLES = false;
+    journalSup("Paramètres maison incomplets (" + (source || '?') + ") — automatisation bloquée", 'warn');
+    return false;
+  }
+  window.MAISON_LAT      = lat;
+  window.MAISON_LON      = lon;
+  window.MAISON_RAYON_KM = rayon;
+  if (filtre !== null) window._CARTE_FILTRE_KM = filtre;
+  window.PARAMS_FIABLES = true;
+  window.PARAMS_SOURCE  = source || 'serveur';
+
+  if (source !== 'cache') {
+    ecrireCache(CLE_CONFIG, {
+      maison_lat: lat, maison_lon: lon, maison_rayon_km: rayon,
+      nettoyage_seuil_m: nombreValide(d.nettoyage_seuil_m, null),
+      carte_filtre_km: filtre, date: new Date().toISOString()
+    });
+  }
+  return true;
+};
+
+/* Motif de refus opposé à toute décision automatique non fiable. */
+window.automatisationAutorisee = function (logger) {
+  if (window.PARAMS_FIABLES) return true;
+  var msg = "⛔ Automatisation bloquée : les paramètres de laMaison (latitude, longitude, rayon) " +
+            "ne sont pas fiables. Ouvrez l'onglet 🩹 Installation pour les renseigner.";
+  if (typeof logger === 'function') { try { logger(msg, 'err'); } catch (e) {} }
+  else console.warn(msg);
+  return false;
+};
+
+/* Restauration depuis le cache dès le démarrage (mode hors-serveur) */
+(function () {
+  var c = lireCache(CLE_CONFIG, null);
+  if (c && Number.isFinite(c.maison_lat) && Number.isFinite(c.maison_lon) && Number.isFinite(c.maison_rayon_km)) {
+    window.majParamsMaison(c, 'cache');
+  }
+})();
+
+/* ── 7. État du serveur + fetch supervisé (back-off) ────────
+   On ne touche à aucun des 48 points d'appel : on enveloppe fetch.
+   Serveur absent → les requêtes vers :8585 sont refusées localement
+   (aucun trafic) sauf une sonde par palier de back-off.            */
+var DELAIS = [2000, 5000, 15000, 60000];
+var ETAT = {
+  serveur: 'inconnu',      // 'inconnu' | 'ok' | 'absent'
+  echecs: 0,
+  prochaineSonde: 0,
+  dernierSucces: null,
+  routesManquantes: {},
+  camsChangees: false,
+  sondes: {}               // résultats du préflight
+};
+window.ETAT_SUPERVISION = ETAT;
+
+function delaiCourant() { return DELAIS[Math.min(ETAT.echecs, DELAIS.length - 1)]; }
+
+function marquerSucces(r) {
+  var etaitAbsent = (ETAT.serveur !== 'ok');
+  ETAT.serveur = 'ok';
+  ETAT.echecs = 0;
+  ETAT.prochaineSonde = 0;
+  ETAT.dernierSucces = Date.now();
+  if (r && (r.status === 404 || r.status === 501)) {
+    try { ETAT.routesManquantes[new URL(r.url).pathname] = r.status; } catch (e) {}
+  }
+  if (etaitAbsent) {
+    majModeDegrade();
+    journalSup("Serveur 8585 de nouveau joignable — reprise du fonctionnement normal", 'ok');
+  }
+}
+function marquerEchec() {
+  ETAT.echecs++;
+  ETAT.serveur = 'absent';
+  ETAT.prochaineSonde = Date.now() + delaiCourant();
+  majModeDegrade();
+}
+
+var fetchNatif = window.fetch ? window.fetch.bind(window) : null;
+window.fetchNatif = fetchNatif;
+
+if (fetchNatif) {
+  window.fetch = function (entree, options) {
+    var url = (typeof entree === 'string') ? entree : ((entree && entree.url) || '');
+    if (url.indexOf(':8585') === -1) return fetchNatif(entree, options);
+
+    var maintenant = Date.now();
+    if (ETAT.serveur === 'absent') {
+      if (maintenant < ETAT.prochaineSonde) {
+        var reste = Math.ceil((ETAT.prochaineSonde - maintenant) / 1000);
+        return Promise.reject(new Error(
+          'serveur 8585 absent — mode dégradé, nouvelle tentative dans ' + reste + ' s'));
+      }
+      // cette requête sert de sonde pour ce palier
+      ETAT.prochaineSonde = maintenant + delaiCourant();
+    }
+
+    var opts = {};
+    if (options) for (var k in options) if (Object.prototype.hasOwnProperty.call(options, k)) opts[k] = options[k];
+    if (!opts.signal) { var s = signalTimeout(8000); if (s) opts.signal = s; }
+
+    return fetchNatif(entree, opts).then(
+      function (r) { marquerSucces(r); return r; },
+      function (e) { marquerEchec(); throw e; }
+    );
+  };
+}
+
+/* ── 8. Mode dégradé : boutons d'action neutralisés ─────────── */
+function majModeDegrade() {
+  if (!document.body) return;
+  var degrade = (ETAT.serveur === 'absent');
+  document.body.classList.toggle('mode-degrade', degrade);
+  var titre = degrade ? "Indisponible : le serveur cameraServer.py (port 8585) ne répond pas" : '';
+  ['.toggle', '.btn-test', '#btnNettoyer', '#btn-lecture-immediate'].forEach(function (sel) {
+    try {
+      document.querySelectorAll(sel).forEach(function (el) {
+        if (degrade) el.setAttribute('title', titre); else el.removeAttribute('title');
+      });
+    } catch (e) {}
+  });
+  majBandeau();
+}
+
+/* ── 9. Journal de supervision ─────────────────────────────── */
+function journalSup(msg, niveau) {
+  journalSupervision.push({ t: new Date(), msg: msg, niveau: niveau || 'info' });
+  if (journalSupervision.length > 200) journalSupervision.shift();
+  var box = document.getElementById('inst-journal');
+  if (box) rendreJournal(box);
+}
+window.journalSup = journalSup;
+
+function rendreJournal(box) {
+  var couleurs = { ok: '#22c55e', err: '#ef4444', warn: '#f59e0b', info: '#8b9198' };
+  box.innerHTML = journalSupervision.slice(-60).map(function (l) {
+    return '<div style="color:' + (couleurs[l.niveau] || '#8b9198') + '">[' +
+      l.t.toLocaleTimeString('fr-FR') + '] ' + echapper(l.msg) + '</div>';
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ── 10. Préflight : les 5 dépendances, testées dans l'ordre ── */
+var SONDES = [
+  { id: 'serveur', libelle: 'cameraServer.py — port 8585', url: '/status',
+    fichier: 'cameraServer.py',
+    remede: "Démarrez le serveur caméras :\npython3.13 cameraServer.py" },
+  { id: 'loc', libelle: 'localisation.py — via le proxy /loc', url: '/loc/distances',
+    fichier: 'localisation.py',
+    fichierDonnees: 'coordonnées de laMaison',
+    remede: "Démarrez le serveur de localisation :\npkill -f \"localisation.py\"\npython3.13 localisation.py",
+    remedeDonnees: "Le serveur répond mais ne connaît pas laMaison : renseignez latitude, longitude et rayon dans le formulaire ci-dessous, puis « Enregistrer sur le serveur »." },
+  { id: 'param', libelle: 'localisationParam.json', url: '/loc/preferences',
+    fichier: 'localisationParam.json',
+    remede: "Créez le fichier de paramètres avec le formulaire ci-dessous, puis déposez-le dans le dossier de localisation.py." },
+  { id: 'sources', libelle: 'coordonnees.txt (sources GPS)', url: '/loc/coordonnees',
+    fichier: 'coordonnees.txt',
+    remede: "Déclarez au moins une URL GitHub de fichier iphone*.txt dans coordonnees.txt (générable ci-dessous)." },
+  { id: 'hist', libelle: 'historique_positions.json', url: '/loc/historique_positions.json',
+    fichier: 'historique_positions.json',
+    remede: "Ce fichier se remplit tout seul à la première lecture GPS. Bouton « Lecture GPS immédiate » de l'onglet Paramétrage, ou attendez le cycle automatique." }
+];
+
+var ETIQUETTES = {
+  'ok':               { txt: 'OK',                     coul: '#22c55e', ic: '✅' },
+  'donnees-absentes': { txt: 'fichier à créer',        coul: '#f59e0b', ic: '⚠️' },
+  'route-absente':    { txt: 'route absente (serveur trop ancien)', coul: '#f59e0b', ic: '⚠️' },
+  'injoignable':      { txt: 'processus absent',       coul: '#ef4444', ic: '❌' },
+  'inconnu':          { txt: 'non testé',              coul: '#8b9198', ic: '…' }
+};
+
+async function sonder(sonde) {
+  var res = { id: sonde.id, etat: 'inconnu', detail: '', code: 0, charge: null };
+  try {
+    var opts = {};
+    var s = signalTimeout(4000);
+    if (s) opts.signal = s;
+    // fetchNatif : le préflight doit pouvoir sonder même en mode dégradé
+    var r = await fetchNatif(BASE + sonde.url + (sonde.url.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now(), opts);
+    res.code = r.status;
+    if (r.status === 404 || r.status === 501) {
+      res.etat = 'route-absente';
+      res.detail = 'HTTP ' + r.status + ' sur ' + sonde.url;
+      return res;
+    }
+    if (!r.ok) {
+      res.etat = 'injoignable';
+      res.detail = 'HTTP ' + r.status;
+      return res;
+    }
+    var data = null;
+    try { data = await r.json(); }
+    catch (e) {
+      res.etat = 'donnees-absentes';
+      res.detail = 'réponse illisible (pas du JSON)';
+      return res;
+    }
+    res.charge = data;
+
+    // 200 ≠ données présentes : on regarde le contenu
+    if (data && data.ok === false) {
+      res.etat = 'donnees-absentes';
+      res.detail = data.erreur || 'le serveur signale une donnée absente';
+      return res;
+    }
+    if (sonde.id === 'loc') {
+      var d = (data && data.distances) || {};
+      if (nombreValide(d.maison_lat, null) === null || nombreValide(d.maison_lon, null) === null) {
+        res.etat = 'donnees-absentes';
+        res.detail = 'coordonnées de laMaison absentes ou non numériques';
+        return res;
+      }
+    }
+    if (sonde.id === 'sources') {
+      var urls = (data && data.urls) || [];
+      if (!urls.length) {
+        res.etat = 'donnees-absentes';
+        res.detail = 'aucune URL de coordonnées déclarée';
+        return res;
+      }
+      res.detail = urls.length + ' source(s) déclarée(s)';
+    }
+    if (sonde.id === 'hist') {
+      if (!Array.isArray(data)) {
+        res.etat = 'donnees-absentes';
+        res.detail = 'contenu inattendu (tableau attendu)';
+        return res;
+      }
+      if (!data.length) {
+        res.etat = 'donnees-absentes';
+        res.detail = 'aucun relevé GPS enregistré';
+        return res;
+      }
+      res.detail = data.length + ' relevé(s)';
+    }
+    if (sonde.id === 'param') {
+      var p = (data && data.preferences) || null;
+      if (!p || !Object.keys(p).length) {
+        res.etat = 'donnees-absentes';
+        res.detail = 'aucune préférence enregistrée';
+        return res;
+      }
+    }
+    if (sonde.id === 'serveur') {
+      var noms = (data && data.cameras) ? Object.keys(data.cameras) : [];
+      res.detail = noms.length ? (noms.length + ' caméra(s) déclarée(s)') : 'aucune caméra déclarée par le serveur';
+      if (noms.length) memoriserCameras(noms);
+    }
+    res.etat = 'ok';
+    return res;
+  } catch (e) {
+    res.etat = 'injoignable';
+    res.detail = (e && e.name === 'AbortError') ? 'délai dépassé (4 s)' : (e && e.message) || 'erreur réseau';
+    return res;
+  }
+}
+
+async function preflight() {
+  journalSup('── Préflight de démarrage ──────────────', 'info');
+  var serveurVivant = false;
+
+  for (var i = 0; i < SONDES.length; i++) {
+    var sonde = SONDES[i];
+    // Inutile de marteler /loc/* si 8585 est mort : on marque et on continue
+    if (i > 0 && !serveurVivant) {
+      ETAT.sondes[sonde.id] = { id: sonde.id, etat: 'injoignable', detail: 'non testé — serveur 8585 absent', code: 0 };
+      continue;
+    }
+    var res = await sonder(sonde);
+    ETAT.sondes[sonde.id] = res;
+    if (sonde.id === 'serveur') serveurVivant = (res.etat === 'ok' || res.etat === 'donnees-absentes');
+    var et = ETIQUETTES[res.etat] || ETIQUETTES.inconnu;
+    journalSup(et.ic + ' ' + sonde.libelle + ' — ' + et.txt + (res.detail ? ' (' + res.detail + ')' : ''),
+               res.etat === 'ok' ? 'ok' : (res.etat === 'injoignable' ? 'err' : 'warn'));
+  }
+
+  // État global du serveur (sans passer par le fetch supervisé)
+  if (serveurVivant) { ETAT.serveur = 'ok'; ETAT.echecs = 0; ETAT.dernierSucces = Date.now(); }
+  else { ETAT.serveur = 'absent'; ETAT.echecs = 1; ETAT.prochaineSonde = Date.now() + delaiCourant(); }
+
+  // Hydratation des paramètres maison depuis la sonde /loc/distances
+  var sLoc = ETAT.sondes.loc;
+  if (sLoc && sLoc.charge && sLoc.charge.distances) {
+    window.majParamsMaison(sLoc.charge.distances, 'serveur');
+  }
+  // Mémorisation des dernières positions connues (cache de secours)
+  var sHist = ETAT.sondes.hist;
+  if (sHist && Array.isArray(sHist.charge) && sHist.charge.length) {
+    ecrireCache(CLE_POS, { date: new Date().toISOString(), entrees: sHist.charge.slice(-200) });
+  }
+
+  majModeDegrade();
+  majBandeau();
+  if (document.getElementById('page-installation') &&
+      document.getElementById('page-installation').style.display !== 'none') rendreInstallation();
+
+  if (ETAT.camsChangees) {
+    journalSup("La liste des caméras du serveur diffère de celle en mémoire — elle sera appliquée au prochain chargement de la page.", 'warn');
+  }
+  return ETAT.sondes;
+}
+window.preflight = preflight;
+
+/* ── 11. Bandeau d'alerte sous la barre d'onglets ───────────── */
+function problemes() {
+  return SONDES.filter(function (s) {
+    var r = ETAT.sondes[s.id];
+    return r && r.etat !== 'ok';
+  });
+}
+
+function nomProbleme(sonde) {
+  var r = ETAT.sondes[sonde.id] || {};
+  return (r.etat === 'donnees-absentes' && sonde.fichierDonnees) ? sonde.fichierDonnees : sonde.fichier;
+}
+
+function remedeSonde(sonde) {
+  var r = ETAT.sondes[sonde.id] || {};
+  return (r.etat === 'donnees-absentes' && sonde.remedeDonnees) ? sonde.remedeDonnees : sonde.remede;
+}
+
+function majBandeau() {
+  var bandeau = document.getElementById('preflight-banner');
+  if (!bandeau) return;
+  var pbs = problemes();
+  var badge = document.getElementById('tab-badge-installation');
+
+  if (!pbs.length) {
+    bandeau.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+    majDecalage();
+    return;
+  }
+  if (badge) { badge.textContent = String(pbs.length); badge.style.display = ''; }
+
+  var bloquant = pbs.some(function (s) {
+    var r = ETAT.sondes[s.id];
+    return r.etat === 'injoignable' || r.etat === 'route-absente';
+  });
+  bandeau.className = bloquant ? 'grave' : 'attention';
+  bandeau.innerHTML =
+    '<div class="pb-texte">' +
+      '<strong>' + (bloquant ? '❌ Installation incomplète' : '⚠️ Configuration incomplète') + '</strong> — ' +
+      echapper(pbs.map(function (s) { return nomProbleme(s); }).join(' · ')) +
+      (window.PARAMS_FIABLES ? '' : '<br><span class="pb-detail">Automatisation de présence désactivée tant que les coordonnées de laMaison ne sont pas connues.</span>') +
+    '</div>' +
+    '<button class="pb-btn" onclick="showPage(\'installation\')">Marche à suivre →</button>';
+  bandeau.style.display = 'flex';
+  majDecalage();
+}
+
+function majDecalage() {
+  var bandeau = document.getElementById('preflight-banner');
+  var h = (bandeau && bandeau.style.display !== 'none') ? bandeau.offsetHeight : 0;
+  document.documentElement.style.setProperty('--decalage-haut', (44 + h) + 'px');
+}
+window.addEventListener('resize', majDecalage);
+
+/* ── 12. Panneau Installation ──────────────────────────────── */
+var FICHIERS = [
+  { f: 'cameraServer.py',           sonde: 'serveur', role: "Serveur principal (port 8585) : caméras Nest via Selenium, journaux, Telegram, et proxy /loc/* vers localisation.py", ou: "dossier de la domotique sur l'iMac" },
+  { f: 'localisation.py',           sonde: 'loc',     role: "Serveur GPS (port 8282) : lecture des positions, distances, périodes, nettoyage", ou: "même dossier" },
+  { f: 'cameraControl.py',          sonde: null,      role: "Pilotage Selenium/Google Home et session Chrome (--setup pour ré-authentifier)", ou: "même dossier" },
+  { f: 'localisationParam.json',    sonde: 'param',   role: "Tous les paramètres : coordonnées maison, rayon, seuils, période, préférences", ou: "à côté de localisation.py" },
+  { f: 'historique_positions.json', sonde: 'hist',    role: "Historique des relevés GPS affiché sur la carte", ou: "à côté de localisation.py" },
+  { f: 'coordonnees.txt',           sonde: 'sources', role: "Liste des URLs GitHub des fichiers iphone*.txt à suivre", ou: "à côté de localisation.py" },
+  { f: 'historique_cameras.json',   sonde: null,      role: "Historique des changements d'état des caméras (bouton ℹ️)", ou: "à côté de cameraServer.py" },
+  { f: 'chrome_profile/',           sonde: null,      role: "Profil Chrome persistant : sans lui, Selenium n'est plus authentifié sur Google Home", ou: "à côté de cameraServer.py" }
+];
+
+var COMMANDES = [
+  { l: "Démarrer le serveur caméras",       c: "python3.13 cameraServer.py" },
+  { l: "Relancer le serveur de localisation", c: "pkill -f \"localisation.py\" ; python3.13 localisation.py" },
+  { l: "Ré-authentifier Chrome sur Google Home", c: "python3.13 cameraControl.py --setup" },
+  { l: "Vérifier les requêtes reçues par le serveur", c: "curl -sk " + BASE + "/logs" }
+];
+
+function rendreInstallation() {
+  var zone = document.getElementById('inst-contenu');
+  if (!zone) return;
+
+  var h = '';
+
+  /* Résumé des sondes */
+  h += '<div class="inst-bloc"><h3>1 · Diagnostic de démarrage</h3>' +
+       '<div class="inst-sous">Cinq dépendances testées dans l\'ordre. Un 200 ne suffit pas : le contenu est vérifié.</div>' +
+       '<table class="inst-table"><thead><tr><th>Dépendance</th><th>État</th><th>Détail</th></tr></thead><tbody>';
+  SONDES.forEach(function (s) {
+    var r = ETAT.sondes[s.id] || { etat: 'inconnu', detail: '' };
+    var et = ETIQUETTES[r.etat] || ETIQUETTES.inconnu;
+    h += '<tr><td>' + echapper(s.libelle) + '</td>' +
+         '<td style="color:' + et.coul + ';white-space:nowrap">' + et.ic + ' ' + echapper(et.txt) + '</td>' +
+         '<td class="inst-detail">' + echapper(r.detail || '—') + '</td></tr>';
+    if (r.etat !== 'ok' && r.etat !== 'inconnu') {
+      h += '<tr class="inst-remede"><td colspan="3"><strong>Remède :</strong> ' +
+           echapper(remedeSonde(s)).replace(/\n/g, '<br>') + '</td></tr>';
+    }
+  });
+  h += '</tbody></table>' +
+       '<button class="inst-btn" onclick="relancerPreflight()">🔄 Relancer le diagnostic</button>' +
+       '<span class="inst-note" id="inst-preflight-etat"></span></div>';
+
+  /* Inventaire */
+  h += '<div class="inst-bloc"><h3>2 · Fichiers attendus</h3>' +
+       '<table class="inst-table"><thead><tr><th>Fichier</th><th>État</th><th>Rôle</th></tr></thead><tbody>';
+  FICHIERS.forEach(function (f) {
+    var etat, coul, ic;
+    if (!f.sonde) { etat = 'non vérifiable depuis le navigateur'; coul = '#8b9198'; ic = '•'; }
+    else {
+      var r = ETAT.sondes[f.sonde] || { etat: 'inconnu' };
+      var et = ETIQUETTES[r.etat] || ETIQUETTES.inconnu;
+      etat = et.txt; coul = et.coul; ic = et.ic;
+    }
+    h += '<tr><td><code>' + echapper(f.f) + '</code><div class="inst-detail">' + echapper(f.ou) + '</div></td>' +
+         '<td style="color:' + coul + ';white-space:nowrap">' + ic + ' ' + echapper(etat) + '</td>' +
+         '<td class="inst-detail">' + echapper(f.role) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  /* Commandes */
+  h += '<div class="inst-bloc"><h3>3 · Commandes à lancer sur l\'iMac</h3>';
+  COMMANDES.forEach(function (c, i) {
+    h += '<div class="inst-cmd"><div class="inst-cmd-l">' + echapper(c.l) + '</div>' +
+         '<code id="cmd-' + i + '">' + echapper(c.c) + '</code>' +
+         '<button class="inst-btn petit" onclick="copierCommande(' + i + ')">📋 Copier</button></div>';
+  });
+  h += '</div>';
+
+  /* Formulaire */
+  var cfg = lireCache(CLE_CONFIG, {});
+  var lat   = nombreValide(window.MAISON_LAT, nombreValide(cfg.maison_lat, 48.83389));
+  var lon   = nombreValide(window.MAISON_LON, nombreValide(cfg.maison_lon, 2.29546));
+  var rayon = nombreValide(window.MAISON_RAYON_KM, nombreValide(cfg.maison_rayon_km, 1));
+  var seuil = nombreValide(cfg.nettoyage_seuil_m, 500);
+  var filtre = nombreValide(window._CARTE_FILTRE_KM, nombreValide(cfg.carte_filtre_km, 1));
+  var sSrc = ETAT.sondes.sources;
+  var urls = (sSrc && sSrc.charge && sSrc.charge.urls) || lireCache('cam_urls_v2', []);
+  var cams = (window.CAMERAS_CONFIG && window.CAMERAS_CONFIG.noms) || (window.CAMERAS || []);
+  var lignesCams = cams.map(function (n) {
+    var ic = (window.ICONS && window.ICONS[n]) || '📷';
+    var lb = (window.LABELS && window.LABELS[n]) || n;
+    return n + ' | ' + ic + ' | ' + lb;
+  }).join('\n');
+
+  h += '<div class="inst-bloc"><h3>4 · Configuration de première installation</h3>' +
+    '<div class="inst-sous">Renseignez ce qui manque. Si le serveur répond, l\'enregistrement se fait directement ; ' +
+    'sinon la page génère le fichier à déposer à la main.</div>' +
+    '<div class="inst-grille">' +
+      champ('f-lat', 'Latitude de laMaison', lat, 'number', '0.00001') +
+      champ('f-lon', 'Longitude de laMaison', lon, 'number', '0.00001') +
+      champ('f-rayon', 'Rayon de présence (km)', rayon, 'number', '0.1') +
+      champ('f-seuil', 'Seuil de nettoyage (m)', seuil, 'number', '10') +
+      champ('f-filtre', 'Filtre de la carte (km)', filtre, 'number', '1') +
+      champ('f-periode', 'Période de lecture GPS (minutes)', 180, 'number', '1') +
+    '</div>' +
+    '<label class="inst-lab">URLs des fichiers de coordonnées (une par ligne — contenu de <code>coordonnees.txt</code>)</label>' +
+    '<textarea id="f-urls" rows="3" placeholder="https://raw.githubusercontent.com/user/repo/main/iphoneHenri.txt">' +
+      echapper(urls.join('\n')) + '</textarea>' +
+    '<label class="inst-lab">Caméras — une par ligne, format <code>nom exact | icône | libellé</code></label>' +
+    '<textarea id="f-cams" rows="4">' + echapper(lignesCams) + '</textarea>' +
+    '<div class="inst-actions">' +
+      '<button class="inst-btn vert" onclick="enregistrerSurServeur()">💾 Enregistrer sur le serveur</button>' +
+      '<button class="inst-btn" onclick="genererJSON()">🧩 Générer le JSON</button>' +
+      '<button class="inst-btn" onclick="telechargerParam()">⬇️ Télécharger localisationParam.json</button>' +
+      '<button class="inst-btn" onclick="telechargerCoordonnees()">⬇️ Télécharger coordonnees.txt</button>' +
+      '<button class="inst-btn" onclick="copierJSON()">📋 Copier le JSON</button>' +
+      '<button class="inst-btn" onclick="memoriserCamerasFormulaire()">📷 Appliquer la liste des caméras</button>' +
+    '</div>' +
+    '<div class="inst-feedback" id="f-feedback"></div>' +
+    '<label class="inst-lab">Contenu de <code>localisationParam.json</code> ' +
+      '<span class="inst-note">structure déduite des réponses de l\'API — ajustez les clés si votre localisation.py en attend d\'autres</span></label>' +
+    '<textarea id="f-json" rows="14" spellcheck="false"></textarea>' +
+  '</div>';
+
+  /* Cache de secours */
+  var pos = lireCache(CLE_POS, null);
+  h += '<div class="inst-bloc"><h3>5 · Dernières données connues (cache local)</h3>';
+  if (pos && pos.entrees && pos.entrees.length) {
+    var d = new Date(pos.date);
+    h += '<div class="inst-sous">' + pos.entrees.length + ' relevé(s) mémorisé(s) le ' +
+         d.toLocaleString('fr-FR') + ' — lecture seule, utilisable serveur éteint.</div>';
+    var dernier = pos.entrees[pos.entrees.length - 1];
+    h += '<div class="inst-detail">Dernier relevé : ' + echapper(dernier.nomfichier || '?') + ' — ' +
+         echapper(dernier.date_enregistrement || dernier.date || '?') + '</div>';
+  } else {
+    h += '<div class="inst-sous">Aucune donnée mémorisée pour l\'instant.</div>';
+  }
+  h += '</div>';
+
+  /* Journal */
+  h += '<div class="inst-bloc"><h3>6 · Journal de supervision</h3>' +
+       '<div id="inst-journal" class="inst-journal"></div></div>';
+
+  zone.innerHTML = h;
+  var box = document.getElementById('inst-journal');
+  if (box) rendreJournal(box);
+  genererJSON();
+}
+window.rendreInstallation = rendreInstallation;
+
+function champ(id, label, valeur, type, pas) {
+  return '<div class="inst-champ"><label for="' + id + '">' + label + '</label>' +
+         '<input id="' + id + '" type="' + (type || 'text') + '"' + (pas ? ' step="' + pas + '"' : '') +
+         ' value="' + echapper(valeur) + '"></div>';
+}
+
+function valeurNum(id) {
+  var el = document.getElementById(id);
+  return el ? nombreValide(el.value, null) : null;
+}
+
+function lireFormulaire() {
+  var o = {
+    maison_lat: valeurNum('f-lat'),
+    maison_lon: valeurNum('f-lon'),
+    maison_rayon_km: valeurNum('f-rayon'),
+    nettoyage_seuil_m: valeurNum('f-seuil'),
+    carte_filtre_km: valeurNum('f-filtre')
+  };
+  var periode = valeurNum('f-periode');
+  var ta = document.getElementById('f-urls');
+  var urls = ta ? ta.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+  var tc = document.getElementById('f-cams');
+  var cams = [];
+  if (tc) {
+    tc.value.split('\n').forEach(function (ligne) {
+      if (!ligne.trim()) return;
+      var p = ligne.split('|').map(function (s) { return s.trim(); });
+      if (p[0]) cams.push({ nom: p[0], icone: p[1] || '📷', libelle: p[2] || p[0] });
+    });
+  }
+  return { distances: o, period: periode, urls: urls, cameras: cams };
+}
+
+function feedback(classe, msg) {
+  var el = document.getElementById('f-feedback');
+  if (!el) return;
+  var couleurs = { ok: '#22c55e', err: '#ef4444', info: '#60a5fa', warn: '#f59e0b' };
+  el.style.color = couleurs[classe] || '#8b9198';
+  el.textContent = msg;
+}
+
+window.genererJSON = function () {
+  var f = lireFormulaire();
+  var manquants = Object.keys(f.distances).filter(function (k) { return f.distances[k] === null; });
+  var obj = {
+    distances: f.distances,
+    period: f.period === null ? 180 : f.period,
+    preferences: {
+      refreshMinutes: 5,
+      autoChecks: {},
+      autoriserActualisation: false,
+      autoscroll: true
+    },
+    urls_coordonnees: f.urls,
+    cameras: f.cameras
+  };
+  var ta = document.getElementById('f-json');
+  if (ta) ta.value = JSON.stringify(obj, null, 2);
+  if (manquants.length) feedback('warn', '⚠️ Valeurs non numériques : ' + manquants.join(', '));
+  return obj;
+};
+
+function telecharger(nom, contenu, type) {
+  try {
+    var blob = new Blob([contenu], { type: type || 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = nom;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+    feedback('ok', '✅ ' + nom + ' généré — déposez-le à côté de localisation.py');
+  } catch (e) { feedback('err', '❌ Téléchargement impossible : ' + e.message); }
+}
+
+window.telechargerParam = function () {
+  var obj = window.genererJSON();
+  telecharger('localisationParam.json', JSON.stringify(obj, null, 2));
+};
+
+window.telechargerCoordonnees = function () {
+  var f = lireFormulaire();
+  if (!f.urls.length) { feedback('err', '❌ Aucune URL saisie'); return; }
+  ecrireCache('cam_urls_v2', f.urls);
+  telecharger('coordonnees.txt', f.urls.join('\n') + '\n', 'text/plain;charset=utf-8');
+};
+
+window.copierJSON = function () {
+  window.genererJSON();
+  var ta = document.getElementById('f-json');
+  if (!ta) return;
+  copierTexte(ta.value, 'JSON copié dans le presse-papiers');
+};
+
+window.copierCommande = function (i) {
+  copierTexte(COMMANDES[i].c, 'Commande copiée');
+};
+
+function copierTexte(txt, msgOk) {
+  function repli() {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      feedback('ok', '✅ ' + msgOk);
+    } catch (e) { feedback('err', '❌ Copie impossible — sélectionnez le texte à la main'); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(function () { feedback('ok', '✅ ' + msgOk); }, repli);
+  } else repli();
+}
+
+window.memoriserCamerasFormulaire = function () {
+  var f = lireFormulaire();
+  if (!f.cameras.length) { feedback('err', '❌ Aucune caméra saisie'); return; }
+  var noms = f.cameras.map(function (c) { return c.nom; });
+  var icones = {}, libelles = {};
+  f.cameras.forEach(function (c) { icones[c.nom] = c.icone; libelles[c.nom] = c.libelle; });
+  ecrireCache(CLE_CAMS, { noms: noms, icones: icones, libelles: libelles, date: new Date().toISOString() });
+  feedback('ok', '✅ Liste enregistrée — rechargez la page pour l\'appliquer au tableau de bord');
+};
+
+window.enregistrerSurServeur = async function () {
+  var f = lireFormulaire();
+  var manquants = Object.keys(f.distances).filter(function (k) { return f.distances[k] === null; });
+  if (manquants.length) { feedback('err', '❌ Valeurs invalides : ' + manquants.join(', ')); return; }
+  if (ETAT.serveur === 'absent') {
+    feedback('err', "❌ Serveur 8585 injoignable — utilisez « Télécharger localisationParam.json » et déposez le fichier à la main.");
+    return;
+  }
+  feedback('info', '⏳ Enregistrement…');
+  try {
+    var r1 = await window.fetch(BASE + '/loc/distances', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(f.distances)
+    });
+    if (!r1.ok) throw new Error('distances : HTTP ' + r1.status);
+    if (f.period !== null) {
+      var r2 = await window.fetch(BASE + '/loc/periode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period: f.period })
+      });
+      if (!r2.ok) throw new Error('période : HTTP ' + r2.status);
+    }
+    window.majParamsMaison(f.distances, 'serveur');
+    feedback('ok', '✅ Paramètres enregistrés dans localisationParam.json');
+    journalSup('Paramètres enregistrés sur le serveur', 'ok');
+    await preflight();
+    rendreInstallation();
+  } catch (e) {
+    feedback('err', '❌ Échec — ' + e.message + ". Repli possible : téléchargez le JSON et déposez-le à la main.");
+  }
+};
+
+window.relancerPreflight = async function () {
+  var el = document.getElementById('inst-preflight-etat');
+  if (el) el.textContent = ' ⏳ diagnostic en cours…';
+  ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
+  await preflight();
+  rendreInstallation();
+};
+
+/* ── 13. Modal historique des versions ─────────────────────── */
+window.ouvrirVersions = function () {
+  var ov = document.getElementById('modal-version-overlay');
+  var box = document.getElementById('modal-version-contenu');
+  if (!ov || !box) return;
+  box.innerHTML = window.APP_HISTORIQUE.map(function (h) {
+    return '<div class="ver-item"><div class="ver-num">v' + echapper(h.v) +
+           ' <span class="ver-date">' + echapper(h.date) + '</span></div>' +
+           '<div class="ver-res">' + echapper(h.resume) + '</div></div>';
+  }).join('');
+  ov.classList.add('open');
+};
+window.fermerVersions = function () {
+  var ov = document.getElementById('modal-version-overlay');
+  if (ov) ov.classList.remove('open');
+};
+
+/* ── 14. Navigation : greffe de l'onglet Installation ───────── */
+function greffonNavigation() {
+  var orig = window.showPage;
+  if (typeof orig !== 'function') return;
+  window.showPage = function (nom) {
+    var pInst = document.getElementById('page-installation');
+    var bInst = document.getElementById('tab-btn-installation');
+    if (nom === 'installation') {
+      ['page-cameras', 'page-localisation', 'page-parametrage'].forEach(function (id) {
+        var e = document.getElementById(id); if (e) e.style.display = 'none';
+      });
+      ['tab-btn-cameras', 'tab-btn-localisation', 'tab-btn-parametrage'].forEach(function (id) {
+        var e = document.getElementById(id); if (e) e.classList.remove('active');
+      });
+      if (pInst) pInst.style.display = '';
+      if (bInst) bInst.classList.add('active');
+      rendreInstallation();
+      return;
+    }
+    if (pInst) pInst.style.display = 'none';
+    if (bInst) bInst.classList.remove('active');
+    return orig.apply(this, arguments);
+  };
+}
+
+/* ── 15. Démarrage ─────────────────────────────────────────── */
+function demarrer() {
+  var btn = document.getElementById('version-btn');
+  if (btn) btn.textContent = 'v' + window.APP_VERSION;
+  greffonNavigation();
+  majDecalage();
+  preflight();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', demarrer);
+} else {
+  demarrer();
+}
+
+})();
+
+</script>
+
+<!-- ══════════════════════════════════════════
      SCRIPT — Navigation entre onglets
 ════════════════════════════════════════════ -->
 <script>
@@ -1627,11 +2637,10 @@
       const data = await r.json();
       if (!data.ok) return;
       const d = data.distances;
-      // Ces variables sont déclarées en const dans le script cameras — on les redéfinit en window
-      window.MAISON_LAT       = parseFloat(d.maison_lat);
-      window.MAISON_LON       = parseFloat(d.maison_lon);
-      window.MAISON_RAYON_KM  = parseFloat(d.maison_rayon_km);
-      window._CARTE_FILTRE_KM = parseFloat(d.carte_filtre_km);
+      // [v2.0.0] parseFloat(undefined) === NaN et ?? ne rattrape pas NaN :
+      // majParamsMaison() n'écrase les globales que si tout est fini, et
+      // pose PARAMS_FIABLES qui autorise (ou non) l'automatisation.
+      window.majParamsMaison(d, 'serveur');
       // Mettre à jour le label du bouton Nettoyer
       const labelSeuil = document.getElementById('seuil-nettoyage-label');
       if (labelSeuil) labelSeuil.textContent = d.nettoyage_seuil_m;
@@ -1644,24 +2653,36 @@
 ════════════════════════════════════════════ -->
 <script>
 
-const CAMERAS = [
+// [v2.0.0] Liste des caméras : celle mémorisée depuis /status (ou saisie dans
+// l'onglet Installation) l'emporte ; à défaut, repli sur la liste historique.
+const CAMERAS_DEFAUT = [
   "Caméra - Terrasse",
   "Caméra - Salon",
   "Caméra - Bureau",
   "Caméra 2 eme génération",
 ];
-const ICONS = {
+const ICONS_DEFAUT = {
   "Caméra - Terrasse":       "🌿",
   "Caméra - Salon":          "🛋️",
   "Caméra - Bureau":         "💻",
   "Caméra 2 eme génération": "📷",
 };
-const LABELS = {
+const LABELS_DEFAUT = {
   "Caméra - Terrasse":       "Terrasse",
   "Caméra - Salon":          "Salon",
   "Caméra - Bureau":         "Bureau",
   "Caméra 2 eme génération": "Cam. 2e gén.",
 };
+const _CFG_CAMS = (window.CAMERAS_CONFIG && Array.isArray(window.CAMERAS_CONFIG.noms)
+                   && window.CAMERAS_CONFIG.noms.length) ? window.CAMERAS_CONFIG : null;
+const CAMERAS = _CFG_CAMS ? _CFG_CAMS.noms.slice() : CAMERAS_DEFAUT.slice();
+const ICONS   = Object.assign({}, ICONS_DEFAUT,  (_CFG_CAMS && _CFG_CAMS.icones)   || {});
+const LABELS  = Object.assign({}, LABELS_DEFAUT, (_CFG_CAMS && _CFG_CAMS.libelles) || {});
+CAMERAS.forEach(function(n) {
+  if (!ICONS[n])  ICONS[n]  = "📷";
+  if (!LABELS[n]) LABELS[n] = n.replace(/^Cam[ée]ra\s*-\s*/i, '').trim() || n;
+});
+window.ICONS = ICONS; window.LABELS = LABELS; window.CAMERAS = CAMERAS;
     
 let previousState    = {}; // mémorise l'état stable précédent : nom → "on" | "off"
 let lastChangeSource = {}; // nom → "manual" | "auto_maison" | "external" | null
@@ -2339,6 +3360,9 @@ async function localiserManuellement() {
     await r.json();
     logCam('🗺 Localisation manuelle — données récupérées ✅', 'ok');
 
+    // [v2.0.0] Même garde que pour le cycle automatique
+    if (!window.automatisationAutorisee(logCam)) return;
+
     // ── Récupérer le JSON des positions et les URLs déclarées ──
     let data, urlsCoordonnees;
     try {
@@ -2441,6 +3465,11 @@ async function localiserManuellement() {
 }
 
 async function appliquerAutomatisationMaison() {
+  // [v2.0.0] Aucune décision d'allumage tant que les coordonnées de laMaison
+  // ne sont pas fiables : sinon les distances valent NaN, « proche » est faux
+  // pour tout le monde et les caméras s'allumeraient alors qu'on est là.
+  if (!window.automatisationAutorisee(logCam)) return;
+
   // 1. Récupérer la dernière position depuis le serveur localisation
 
   
@@ -3238,10 +4267,10 @@ async function checkStateChanges(newState) {
             if (!box) return;
             const infos = [
                 '── Fichiers utilisés ──────────────────────────',
-                'HTML    : CameraOnOff.html (onglet Caméras Nest)',
+                'HTML    : cameras.html (onglet Caméras Nest)',
                 'Python  : cameraServer.py  →  port 8585',
                 'Profil Chrome : persistent profile Selenium',
-                'Cibles  : Terrasse · Salon · Bureau · Cam 2e gén.',
+                'Cibles  : ' + CAMERAS.map(n => LABELS[n] || n).join(' · '),
                 '────────────────────────────────────────────────',
             ];
             infos.forEach(txt => {
@@ -3317,7 +4346,7 @@ async function checkStateChanges(newState) {
 
     // ── Informations sur les fichiers utilisés ──────────────────
     const LOC_INFOS = {
-        html    : 'CameraOnOff.html (onglet Localisation)',
+        html    : 'cameras.html (onglet Localisation)',
         python  : 'localisation.py  →  port 8282',
         json    : 'historique_positions.json  (même dossier que localisation.py)',
         log     : 'localisation.log  (même dossier que localisation.py)',
@@ -3482,6 +4511,26 @@ async function checkStateChanges(newState) {
 
     // Initialisation de la carte Leaflet au chargement de la page
     function initierCarte() {
+        // [v2.0.0] Leaflet vient du CDN unpkg : sans réseau, L n'existe pas et
+        // la carte restait blanche sans le moindre message.
+        if (typeof L === 'undefined') {
+            const zone = document.getElementById('mapZone');
+            if (zone) {
+                zone.innerHTML =
+                  '<div style="display:flex;flex-direction:column;gap:8px;align-items:center;' +
+                  'justify-content:center;height:100%;padding:20px;text-align:center;' +
+                  'color:#f59e0b;font-size:13px;font-family:sans-serif;">' +
+                  '<div style="font-size:26px">🗺️</div>' +
+                  '<div><strong>Carte indisponible</strong></div>' +
+                  '<div style="color:#8b9198;font-size:12px;line-height:1.5">' +
+                  'La bibliothèque Leaflet n\'a pas pu être chargée depuis unpkg.com.<br>' +
+                  'Vérifiez la connexion internet, ou hébergez leaflet.js/leaflet.css en local ' +
+                  'à côté de cameras.html et remplacez les deux balises du &lt;head&gt;.</div></div>';
+            }
+            if (typeof journalSup === 'function') journalSup('Leaflet absent — carte désactivée', 'warn');
+            logLoc('Leaflet introuvable (CDN unpkg injoignable) — carte désactivée', 'err');
+            return;
+        }
         try {
         carte = L.map('mapZone').setView([derniereLatitude, derniereLongitude], 13);
         
@@ -4578,11 +5627,8 @@ async function checkStateChanges(newState) {
       document.getElementById('p-carte-filtre').value    = d.carte_filtre_km;
       document.getElementById('p-periode').value         = dataPer.period;
 
-      // Mettre à jour les constantes JS utilisées dans les autres onglets
-      window.MAISON_LAT       = parseFloat(d.maison_lat);
-      window.MAISON_LON       = parseFloat(d.maison_lon);
-      window.MAISON_RAYON_KM  = parseFloat(d.maison_rayon_km);
-      window._CARTE_FILTRE_KM = parseFloat(d.carte_filtre_km);
+      // [v2.0.0] Validation centralisée (voir majParamsMaison)
+      window.majParamsMaison(d, 'serveur');
 
       setFeedback('ok', '✅ Paramètres chargés');
       setTimeout(() => setFeedback('', ''), 3000);
@@ -4670,11 +5716,8 @@ async function checkStateChanges(newState) {
       const data = await r.json();
       if (!data.ok) throw new Error(data.erreur || 'réponse invalide');
 
-      // Mettre à jour les constantes JS globales des autres onglets
-      window.MAISON_LAT       = maison_lat;
-      window.MAISON_LON       = maison_lon;
-      window.MAISON_RAYON_KM  = maison_rayon_km;
-      window._CARTE_FILTRE_KM = carte_filtre_km;
+      // [v2.0.0] Validation centralisée (voir majParamsMaison)
+      window.majParamsMaison(champs, 'serveur');
       // Mettre à jour le label du bouton Nettoyer
       const labelSeuil = document.getElementById('seuil-nettoyage-label');
       if (labelSeuil) labelSeuil.textContent = nettoyage_seuil_m;
@@ -5236,6 +6279,32 @@ ${textePositions(positions2)}`;
     <h2>Dernier changement d'état</h2>
     <div id="modal-history-content"></div>
     <button id="modal-history-close" onclick="fermerHistoriqueCamera()">Fermer</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE 4 — Installation / diagnostic (v2.0.0)
+════════════════════════════════════════════ -->
+<div id="page-installation">
+  <div class="inst-wrap">
+    <h2>🩹 Installation &amp; diagnostic</h2>
+    <div class="inst-intro">
+      Cette page fonctionne <strong>même si aucun serveur Python n'est démarré et si aucun fichier de
+      données n'existe</strong>. Elle teste chaque dépendance, dit ce qui manque, donne les commandes à
+      lancer, et génère les fichiers de configuration à déposer sur l'iMac.
+    </div>
+    <div id="inst-contenu"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MODAL — Historique des versions
+════════════════════════════════════════════ -->
+<div id="modal-version-overlay" onclick="if(event.target===this) fermerVersions()">
+  <div id="modal-version-box">
+    <h2>Historique des versions</h2>
+    <div id="modal-version-contenu"></div>
+    <button id="modal-version-close" onclick="fermerVersions()">Fermer</button>
   </div>
 </div>
 
