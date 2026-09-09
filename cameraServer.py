@@ -39,8 +39,14 @@ from selenium.webdriver.common.keys import Keys
 #  dans /status (le dashboard peut ainsi vérifier qu'il parle bien
 #  à la version de serveur qu'il attend).
 # ═══════════════════════════════════════════════════════════════
-VERSION_SERVEUR = "1.1.1"
+VERSION_SERVEUR = "1.1.2"
 HISTORIQUE_VERSIONS = [
+    ("1.1.2", "09/09/2026",
+     "Proxy /loc/* transparent : une réponse d'erreur de localisation.py "
+     "(404, 500...) était convertie en 502 « processus absent », ce qui "
+     "faisait croire que le serveur 8282 ne tournait pas. Le code et le corps "
+     "d'origine sont maintenant retransmis tels quels ; le 502 est réservé aux "
+     "vraies pannes de connexion, et son message distingue les cas."),
     ("1.1.1", "09/09/2026",
      "Correction : les routes étaient comparées à self.path, qui inclut la "
      "chaîne de requête. Un appel /status?t=123 (anti-cache) ne correspondait "
@@ -1521,8 +1527,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(corps)
+            except urllib.error.HTTPError as e:
+                # localisation.py a répondu, mais avec une erreur (404, 500...).
+                # On retransmet tel quel : la masquer en 502 laissait croire que
+                # le processus 8282 était absent alors qu'il tournait.
+                corps = e.read()
+                log(f"↪️  /loc : localisation.py a renvoyé HTTP {e.code} pour {self.path}")
+                self.send_response(e.code)
+                self._entetes_communs(
+                    e.headers.get("Content-Type", "application/json; charset=utf-8"),
+                    len(corps))
+                self.end_headers()
+                self.wfile.write(corps)
             except urllib.error.URLError as e:
-                self.send_json({"ok": False, "erreur": str(e)}, 502)
+                # Vraie panne de connexion : localisation.py n'écoute pas.
+                self.send_json({"ok": False,
+                                "erreur": "localisation.py (port 8282) injoignable : %s" % e.reason,
+                                "chemin": self.path}, 502)
         # ── [FIN AJOUT PROXY] ──
 
         # Tout autre fichier du dossier (leaflet local, icône, manifeste…)
@@ -1750,8 +1771,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(corps)
+            except urllib.error.HTTPError as e:
+                # localisation.py a répondu, mais avec une erreur (404, 500...).
+                # On retransmet tel quel : la masquer en 502 laissait croire que
+                # le processus 8282 était absent alors qu'il tournait.
+                corps = e.read()
+                log(f"↪️  /loc : localisation.py a renvoyé HTTP {e.code} pour {self.path}")
+                self.send_response(e.code)
+                self._entetes_communs(
+                    e.headers.get("Content-Type", "application/json; charset=utf-8"),
+                    len(corps))
+                self.end_headers()
+                self.wfile.write(corps)
             except urllib.error.URLError as e:
-                self.send_json({"ok": False, "erreur": str(e)}, 502)
+                # Vraie panne de connexion : localisation.py n'écoute pas.
+                self.send_json({"ok": False,
+                                "erreur": "localisation.py (port 8282) injoignable : %s" % e.reason,
+                                "chemin": self.path}, 502)
         # ── [FIN AJOUT PROXY] ──
 
         else:
