@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CameraOnOff — v2.1.0</title>
+<title>CameraOnOff — v2.2.0</title>
 
 <!-- Leaflet (utilisé par l'onglet Localisation) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1466,7 +1466,7 @@
   <button id="tab-btn-parametrage"              onclick="showPage('parametrage')">⚙️ Paramétrage</button>
   <button id="tab-btn-installation"             onclick="showPage('installation')">🩹 Install.<span id="tab-badge-installation" style="display:none">0</span></button>
   <button id="tab-btn-log"                      onclick="showPage('log')">📝 Log</button>
-  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.1.0</button>
+  <button id="version-btn" onclick="ouvrirVersions()" title="Historique des versions">v2.2.0</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -1835,8 +1835,17 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.1.0';
+window.APP_VERSION = '2.2.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.2.0', date: '09/09/2026',
+    resume: "Correction majeure : ouverte en file://, la page construisait " +
+            "« file://localhost:8585/... », URL invalide, et croyait le serveur absent. " +
+            "L'adresse du serveur est maintenant résolue explicitement (réglage manuel, " +
+            "sinon même hôte que la page, sinon http://localhost:8585), réglable dans " +
+            "l'onglet Installation avec bouton de test, et le fetch supervisé réécrit " +
+            "toutes les URLs en :8585 vers cette adresse."
+  },
   {
     v: '2.1.0', date: '09/09/2026',
     resume: "Nouvel onglet 📝 Log : journal horodaté de tout ce que fait la page " +
@@ -1868,11 +1877,63 @@ window.APP_HISTORIQUE = [
   }
 ];
 
-/* ── 2. Cible réseau ───────────────────────────────────────── */
-var HOTE_SUP  = window.location.hostname || 'localhost';
-var PROTO_SUP = window.location.protocol || 'http:';
-var BASE      = PROTO_SUP + '//' + HOTE_SUP + ':8585';
+/* ── 2. Cible réseau — résolution explicite ──────────────────
+   Le piège : ouverte en file://, la page a protocol="file:" et hostname=""
+   → `${PROTOCOLE}//${HOTE}:8585` donnait « file://localhost:8585 », que le
+   navigateur refuse de parser. On résout donc l'adresse à part.        */
+var CLE_SERVEUR = 'cam_serveur_v2';
+
+function resoudreBase() {
+  var manuel = null;
+  try { manuel = localStorage.getItem(CLE_SERVEUR); } catch (e) {}
+  if (manuel && /^https?:\/\//.test(manuel)) {
+    return { base: manuel.replace(/\/+$/, ''), source: 'réglage manuel (onglet Installation)' };
+  }
+  var proto = window.location.protocol;
+  var hote  = window.location.hostname;
+  if (!/^https?:$/.test(proto) || !hote) {
+    return { base: 'http://localhost:8585',
+             source: 'page ouverte en ' + (proto || '?') + ' → repli sur localhost' };
+  }
+  if (/(^|\.)github\.io$/i.test(hote) || /(^|\.)githubusercontent\.com$/i.test(hote)) {
+    return { base: 'http://localhost:8585',
+             source: 'page servie par GitHub Pages → repli sur localhost (réglable ci-dessous)' };
+  }
+  return { base: proto + '//' + hote + ':8585', source: 'même hôte que la page' };
+}
+
+var _res = resoudreBase();
+var BASE = _res.base;
+var BASE_SOURCE = _res.source;
 window.API_BASE = BASE;
+
+/* Ces deux globales sont relues par le script de navigation pour construire
+   ses propres URLs (`${PROTOCOLE}//${HOTE}:8585/...`). */
+(function () {
+  var m = BASE.match(/^(https?:)\/\/([^\/:]+)/);
+  window.SERVEUR_PROTOCOLE = m ? m[1] : 'http:';
+  window.SERVEUR_HOTE      = m ? m[2] : 'localhost';
+})();
+
+function definirBase(nouvelle, memoriser) {
+  BASE = String(nouvelle).replace(/\/+$/, '');
+  window.API_BASE = BASE;
+  var m = BASE.match(/^(https?:)\/\/([^\/:]+)/);
+  window.SERVEUR_PROTOCOLE = m ? m[1] : 'http:';
+  window.SERVEUR_HOTE      = m ? m[2] : 'localhost';
+  if (memoriser) { try { localStorage.setItem(CLE_SERVEUR, BASE); } catch (e) {} }
+  BASE_SOURCE = memoriser ? 'réglage manuel (onglet Installation)' : BASE_SOURCE;
+  LOG('RESEAU', 'adresse du serveur : ' + BASE + ' (' + BASE_SOURCE + ')');
+}
+window.definirBase = definirBase;
+
+/* Réécriture de toute URL visant le port 8585 vers l'adresse résolue :
+   les 48 points d'appel existants n'ont pas à être modifiés. */
+function reecrireURL(url) {
+  if (typeof url !== 'string' || url.indexOf(':8585') === -1) return url;
+  var m = url.match(/^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^\/]*:8585(.*)$/);
+  return m ? (BASE + m[1]) : url;
+}
 
 /* ── 3. Utilitaires ────────────────────────────────────────── */
 /* Déclaré ici (et pas en §9) : majParamsMaison peut journaliser dès le boot. */
@@ -2043,6 +2104,12 @@ if (fetchNatif) {
     var url = (typeof entree === 'string') ? entree : ((entree && entree.url) || '');
     if (url.indexOf(':8585') === -1) return fetchNatif(entree, options);
 
+    // [v2.2.0] Redirection vers l'adresse réellement résolue
+    if (typeof entree === 'string') {
+      var reecrite = reecrireURL(entree);
+      if (reecrite !== entree) entree = reecrite;
+    }
+
     var maintenant = Date.now();
     if (ETAT.serveur === 'absent') {
       if (maintenant < ETAT.prochaineSonde) {
@@ -2210,7 +2277,13 @@ async function sonder(sonde) {
     return res;
   } catch (e) {
     res.etat = 'injoignable';
-    res.detail = (e && e.name === 'AbortError') ? 'délai dépassé (4 s)' : (e && e.message) || 'erreur réseau';
+    var m = (e && e.message) || 'erreur réseau';
+    if (/parse URL/i.test(m)) {
+      m += " — l'adresse du serveur est invalide (bloc 0 ci-dessus)";
+    } else if (/Failed to fetch|NetworkError|load failed/i.test(m)) {
+      m += ' — ' + BASE + " injoignable (serveur arrêté, mauvaise adresse, ou origine refusée par CORS)";
+    }
+    res.detail = (e && e.name === 'AbortError') ? 'délai dépassé (4 s)' : m;
     return res;
   }
 }
@@ -2342,6 +2415,29 @@ function rendreInstallation() {
   LOG('RENDU', 'construction du panneau Installation…');
 
   var h = '';
+
+  /* Adresse du serveur — la cause n°1 d'un « processus absent » trompeur */
+  h += '<div class="inst-bloc"><h3>0 · Adresse du serveur</h3>' +
+    '<div class="inst-sous">Toutes les requêtes partent vers cette adresse. ' +
+    'Résolution actuelle : <strong>' + echapper(BASE) + '</strong> — ' + echapper(BASE_SOURCE) + '.<br>' +
+    'Une page ouverte par double-clic (<code>file://</code>) ou hébergée sur GitHub Pages ne peut pas ' +
+    'deviner l\'adresse de l\'iMac : indiquez-la ici.</div>' +
+    '<div class="inst-grille">' +
+      '<div class="inst-champ" style="grid-column:1/-1">' +
+        '<label for="f-serveur">Adresse de cameraServer.py</label>' +
+        '<input id="f-serveur" type="text" value="' + echapper(BASE) + '" ' +
+        'placeholder="http://localhost:8585">' +
+      '</div>' +
+    '</div>' +
+    '<div class="inst-actions">' +
+      '<button class="inst-btn" onclick="testerServeur()">🔌 Tester cette adresse</button>' +
+      '<button class="inst-btn vert" onclick="enregistrerServeur()">💾 Enregistrer et relancer le diagnostic</button>' +
+      '<button class="inst-btn" onclick="reinitialiserServeur()">↩︎ Détection automatique</button>' +
+    '</div>' +
+    '<div class="inst-feedback" id="srv-feedback"></div>' +
+    '<div class="inst-detail">Exemples : <code>http://localhost:8585</code> si le navigateur tourne sur l\'iMac · ' +
+    '<code>http://iMacTavernier-2.local:8585</code> depuis le réseau local · ' +
+    '<code>https://imactavernier-2.tail78c299.ts.net:8585</code> via Tailscale.</div></div>';
 
   /* Résumé des sondes */
   h += '<div class="inst-bloc"><h3>1 · Diagnostic de démarrage</h3>' +
@@ -2617,6 +2713,67 @@ window.enregistrerSurServeur = async function () {
   }
 };
 
+function retourServeur(classe, msg) {
+  var el = document.getElementById('srv-feedback');
+  if (!el) return;
+  var couleurs = { ok: '#22c55e', err: '#ef4444', info: '#60a5fa', warn: '#f59e0b' };
+  el.style.color = couleurs[classe] || '#8b9198';
+  el.textContent = msg;
+}
+
+function adresseSaisie() {
+  var el = document.getElementById('f-serveur');
+  var v = el ? el.value.trim().replace(/\/+$/, '') : '';
+  if (!v) return null;
+  if (!/^https?:\/\//.test(v)) v = 'http://' + v;
+  if (!/:\d+$/.test(v)) v += ':8585';
+  return v;
+}
+
+window.testerServeur = async function () {
+  var adr = adresseSaisie();
+  if (!adr) { retourServeur('err', '❌ Adresse vide'); return; }
+  retourServeur('info', '⏳ Test de ' + adr + '/status…');
+  LOG('RESEAU', 'test manuel de ' + adr);
+  try {
+    var opts = {}; var sig = signalTimeout(5000); if (sig) opts.signal = sig;
+    var r = await fetchNatif(adr + '/status?t=' + Date.now(), opts);
+    if (!r.ok) { retourServeur('err', '❌ Le serveur répond mais renvoie HTTP ' + r.status); return; }
+    var d = await r.json();
+    var n = (d && d.cameras) ? Object.keys(d.cameras).length : 0;
+    retourServeur('ok', '✅ Serveur joignable — ' + n + ' caméra(s) déclarée(s). Cliquez sur « Enregistrer ».');
+    LOG('RESEAU', 'test réussi : ' + adr);
+  } catch (e) {
+    var aide = /Failed to fetch|NetworkError|load failed/i.test(e.message)
+      ? " — soit le serveur n'écoute pas à cette adresse, soit il refuse l'origine de la page (CORS). " +
+        "Ouvrir la page directement depuis le serveur évite ce problème."
+      : '';
+    retourServeur('err', '❌ Échec : ' + e.message + aide);
+    LOG('RESEAU', 'test échoué : ' + adr + ' — ' + e.message);
+  }
+};
+
+window.enregistrerServeur = async function () {
+  var adr = adresseSaisie();
+  if (!adr) { retourServeur('err', '❌ Adresse vide'); return; }
+  definirBase(adr, true);
+  retourServeur('info', '⏳ Adresse enregistrée — nouveau diagnostic…');
+  ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
+  await preflight();
+  rendreInstallation();
+};
+
+window.reinitialiserServeur = async function () {
+  try { localStorage.removeItem(CLE_SERVEUR); } catch (e) {}
+  var r = resoudreBase();
+  BASE_SOURCE = r.source;
+  definirBase(r.base, false);
+  retourServeur('info', '↩︎ Détection automatique rétablie — nouveau diagnostic…');
+  ETAT.serveur = 'inconnu'; ETAT.echecs = 0; ETAT.prochaineSonde = 0;
+  await preflight();
+  rendreInstallation();
+};
+
 window.relancerPreflight = async function () {
   var el = document.getElementById('inst-preflight-etat');
   if (el) el.textContent = ' ⏳ diagnostic en cours…';
@@ -2774,7 +2931,7 @@ window.viderLog = function () {
 function demarrer() {
   LOG('BOOT', '════ cameras.html v' + window.APP_VERSION + ' ════');
   LOG('BOOT', 'URL : ' + window.location.href);
-  LOG('BOOT', 'Cible API : ' + BASE);
+  LOG('BOOT', 'Cible API : ' + BASE + '  (' + BASE_SOURCE + ')');
   LOG('BOOT', 'Navigateur : ' + navigator.userAgent);
   LOG('BOOT', 'readyState : ' + document.readyState);
   ['tab-btn-installation', 'tab-btn-log', 'page-installation', 'page-log',
@@ -2806,8 +2963,14 @@ if (document.readyState === 'loading') {
   // ── Hôte cible pour les appels API (cameraServer 8585 / proxy /loc) ──
   // En file:// → window.location.hostname est vide → fallback "localhost"
   // En http://192.168.x.x:8585/... ou http://${HOTE}:8585/... → on réutilise le même hôte
-  const HOTE = window.location.hostname || 'localhost';
-  const PROTOCOLE = window.location.protocol || 'http:';
+  // [v2.2.0] En file://, protocol vaut "file:" et hostname est vide :
+  // `${PROTOCOLE}//${HOTE}:8585` produisait "file://localhost:8585", URL que
+  // le navigateur refuse de parser — d'où un « serveur absent » trompeur.
+  // Le module de supervision a résolu l'adresse réelle ; le fetch supervisé
+  // réécrit de toute façon toute URL en :8585 vers cette adresse.
+  const HOTE = window.SERVEUR_HOTE || window.location.hostname || 'localhost';
+  const PROTOCOLE = window.SERVEUR_PROTOCOLE ||
+        (/^https?:$/.test(window.location.protocol) ? window.location.protocol : 'http:');
 
   let localisationInitialisee = false;
   let parametrageInitialise   = false;
