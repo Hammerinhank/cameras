@@ -41,8 +41,17 @@ from selenium.webdriver.common.keys import Keys
 #  dans /status (le dashboard peut ainsi vérifier qu'il parle bien
 #  à la version de serveur qu'il attend).
 # ═══════════════════════════════════════════════════════════════
-VERSION_SERVEUR = "1.2.0"
+VERSION_SERVEUR = "1.3.0"
 HISTORIQUE_VERSIONS = [
+    ("1.3.0", "10/09/2026",
+     "Mode evenementiel : nouvelle route POST /evenement, appelee par le "
+     "Raccourci iOS des qu'il franchit la zone du domicile. Elle force une "
+     "lecture GPS immediate puis decide aussitot, ramenant le delai de pres "
+     "d'une heure et demie a quelques secondes. Deux options independantes : "
+     "temporisation avant allumage au depart (evite les allers-retours "
+     "courts) et notification Telegram a chaque bascule. Tout est desactive "
+     "par defaut : avec le seul mode periodique, le chemin de code parcouru "
+     "est exactement celui de la v1.2.0."),
     ("1.2.0", "09/09/2026",
      "Garde de fraicheur GPS. Les Raccourcis iOS ayant cesse de publier le "
      "31 aout sans que rien ne le signale, les cameras ont ete pilotees neuf "
@@ -329,16 +338,110 @@ def _alerter_fraicheur(detail):
         "et le token est-il toujours valide ?")
 
 
-def _tick_proximite():
-    """Exécuté par le timer périodique en mode SERVEUR.
-    Interroge localisation.py, compare la position à laMaison,
-    et déclenche les toggles nécessaires — exactement comme le faisait le HTML.
+def _charger_reactivite():
+    """Lit le bloc « reactivite » de localisationParam.json.
+    Les defauts reproduisent le comportement historique, et l'invariant
+    « au moins un mode actif » est applique ici aussi : ce fichier peut etre
+    edite a la main."""
+    defauts = {"mode_periodique": True, "mode_evenementiel": False,
+               "temporisation_depart_min": 0, "notifier_telegram": False}
+    try:
+        chemin = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "localisationParam.json")
+        with open(chemin, "r", encoding="utf-8") as f:
+            brut = json.load(f).get("reactivite", {})
+        r = dict(defauts)
+        for cle in ("mode_periodique", "mode_evenementiel", "notifier_telegram"):
+            if cle in brut:
+                r[cle] = bool(brut[cle])
+        try:
+            r["temporisation_depart_min"] = max(0, min(120, float(
+                brut.get("temporisation_depart_min", 0))))
+        except (TypeError, ValueError):
+            pass
+        if not r["mode_periodique"] and not r["mode_evenementiel"]:
+            r["mode_periodique"] = True
+        return r
+    except Exception:
+        return defauts
+
+
+# ── Temporisation avant allumage ─────────────────────────────────
+# Au depart, on attend N minutes et on reverifie avant d'allumer : cela evite
+# que les cameras se declenchent pour une sortie de dix minutes. Au retour,
+# l'extinction reste immediate — c'est le sens qui compte pour la vie privee.
+_tempo_timer = None
+_tempo_lock = threading.Lock()
+_tempo_fin_ts = 0
+
+
+def _annuler_temporisation(raison):
+    global _tempo_timer, _tempo_fin_ts
+    with _tempo_lock:
+        if _tempo_timer is not None:
+            _tempo_timer.cancel()
+            _tempo_timer = None
+            _tempo_fin_ts = 0
+            log(f"⏳ [SERVEUR] Temporisation annulée — {raison}")
+
+
+def _appliquer_cible(cible, reglages, origine):
+    """Partie inchangée depuis la v1.2.0 : bascule les caméras concernées.
+    La notification Telegram n'est ajoutée que si l'option est active."""
+    with camera_lock:
+        cams_a_traiter = [
+            nom for nom in proximite_cameras
+            if camera_status.get(nom) is not None          # état connu
+            and camera_status[nom] != (cible == "on")      # pas déjà à la bonne valeur
+        ]
+
+    for nom in cams_a_traiter:
+        log(f"🏠 [SERVEUR] Toggle automatique : {nom} → {cible.upper()}")
+        _last_change_source[nom] = "proximite_gps"
+        toggle_queue.put((nom, cible == "on"))
+
+    if not cams_a_traiter:
+        log("🏠 [SERVEUR] Toutes les caméras concernées sont déjà dans le bon état.")
+        return
+
+    if reglages.get("notifier_telegram"):
+        noms = ", ".join(cams_a_traiter)
+        if cible == "on":
+            envoyer_telegram(
+                "📹 *Caméras allumées* — logement vide\n\n"
+                f"{noms}\n\n_Déclenché par : {origine}_")
+        else:
+            envoyer_telegram(
+                "🏠 *Bienvenue* — caméras éteintes\n\n"
+                f"{noms}\n\n_Déclenché par : {origine}_")
+
+
+def _tick_proximite(origine="timer"):
+    """Exécuté par le timer périodique en mode SERVEUR, ou à la demande.
+
+    origine : "timer" (cycle périodique), "evenement" (appel du Raccourci iOS)
+    ou "temporisation" (réveil après le délai de départ).
     """
-    global proximite_mode_serveur
+    global proximite_mode_serveur, _tempo_timer, _tempo_fin_ts
     if not proximite_mode_serveur:
         return
-    # Replanifier le prochain tick AVANT l'opération (évite le glissement)
-    _planifier_tick_proximite()
+    if origine == "timer":
+        # Replanifier le prochain tick AVANT l'opération (évite le glissement)
+        _planifier_tick_proximite()
+
+    reglages = _charger_reactivite()
+    if origine == "timer" and not reglages["mode_periodique"]:
+        # Mode périodique désactivé : le timer continue de tourner (il porte
+        # aussi la garde de fraîcheur) mais ne décide plus de lui-même.
+        log("🏠 [SERVEUR] Cycle périodique désactivé — décision ignorée")
+        return
+    if origine == "evenement" and not reglages["mode_evenementiel"]:
+        log("🏠 [SERVEUR] Mode événementiel désactivé — appel ignoré")
+        return
+    if origine == "temporisation":
+        with _tempo_lock:
+            _tempo_timer = None
+            _tempo_fin_ts = 0
 
     # Relire les distances depuis le fichier (prend en compte les changements depuis le HTML)
     dist_params = _charger_distances_locales()
@@ -412,22 +515,35 @@ def _tick_proximite():
                 une_proche = True
 
         cible = "off" if une_proche else "on"
-        log(f"🏠 [SERVEUR] Décision : {'au moins une personne à la maison' if une_proche else 'toutes les personnes absentes'} → cible={cible.upper()}")
+        log(f"🏠 [SERVEUR] Décision : {'au moins une personne à la maison' if une_proche else 'toutes les personnes absentes'} → cible={cible.upper()} (origine : {origine})")
 
-        with camera_lock:
-            cams_a_traiter = [
-                nom for nom in proximite_cameras
-                if camera_status.get(nom) is not None          # état connu
-                and camera_status[nom] != (cible == "on")      # pas déjà à la bonne valeur
-            ]
+        tempo_min = reglages["temporisation_depart_min"]
 
-        for nom in cams_a_traiter:
-            log(f"🏠 [SERVEUR] Toggle automatique : {nom} → {cible.upper()}")
-            _last_change_source[nom] = "proximite_gps"
-            toggle_queue.put((nom, cible == "on"))
+        if cible == "off":
+            # Retour à la maison : extinction immédiate, et toute temporisation
+            # de départ en cours devient caduque.
+            _annuler_temporisation("retour à la maison détecté")
+            _appliquer_cible(cible, reglages, origine)
+            return
 
-        if not cams_a_traiter:
-            log("🏠 [SERVEUR] Toutes les caméras concernées sont déjà dans le bon état.")
+        # Départ. Sans temporisation configurée (valeur par défaut), on applique
+        # tout de suite : c'est le chemin historique, inchangé.
+        if tempo_min <= 0 or origine == "temporisation":
+            _appliquer_cible(cible, reglages, origine)
+            return
+
+        with _tempo_lock:
+            if _tempo_timer is not None:
+                restant = max(0, _tempo_fin_ts - time.time()) / 60
+                log(f"⏳ [SERVEUR] Temporisation déjà en cours — {restant:.1f} min restantes")
+                return
+            log(f"⏳ [SERVEUR] Départ détecté — vérification dans {tempo_min:g} min "
+                f"avant d'allumer les caméras")
+            _tempo_fin_ts = time.time() + tempo_min * 60
+            _tempo_timer = threading.Timer(tempo_min * 60,
+                                           lambda: _tick_proximite("temporisation"))
+            _tempo_timer.daemon = True
+            _tempo_timer.start()
 
     except Exception as e:
         log(f"🏠 [SERVEUR] Erreur interrogation localisation.py : {e}")
@@ -1470,7 +1586,8 @@ class Handler(BaseHTTPRequestHandler):
                  "/debug-status", "/proximite-status", "/actualisation-status",
                  "/server-countdown", "/version", "/sante", "/loc/<route localisation.py>"],
         "POST": ["/toggle", "/test-camera", "/debug", "/clear-logs", "/send-telegram",
-                 "/proximite-config", "/actualisation-config", "/loc/<route localisation.py>"],
+                 "/proximite-config", "/actualisation-config", "/evenement",
+                 "/reactivite", "/loc/<route localisation.py>"],
     }
 
     def send_404(self, detail=""):
@@ -1700,6 +1817,9 @@ class Handler(BaseHTTPRequestHandler):
             "mode_proximite": proximite_mode_serveur,
             "mode_actualisation": actualisation_mode_serveur,
             "localisation_py": {"etat": loc_etat, "detail": loc_detail, "port": 8282},
+            "reactivite": _charger_reactivite(),
+            "temporisation_en_cours_min": (round(max(0, _tempo_fin_ts - time.time()) / 60, 1)
+                                           if _tempo_fin_ts else 0),
             "fraicheur_gps": {
                 "seuil_min": FRAICHEUR_MAX_MIN,
                 "ok": _etat_fraicheur["ok"],
@@ -1748,6 +1868,47 @@ class Handler(BaseHTTPRequestHandler):
             with log_lock:
                 log_buffer.clear()
             self.send_json({"ok": True})
+
+        elif chemin == "/evenement":
+            # Appelée par le Raccourci iOS au franchissement de la zone.
+            # Force une lecture GPS immédiate, puis décide sans attendre le
+            # cycle : c'est ce qui ramène le délai de ~1 h 30 à quelques secondes.
+            reglages = _charger_reactivite()
+            if not reglages["mode_evenementiel"]:
+                self.send_json({"ok": False,
+                                "erreur": "mode événementiel désactivé",
+                                "reactivite": reglages}, 409)
+                return
+            taille = int(self.headers.get("Content-Length", 0))
+            corps = {}
+            if taille:
+                try:
+                    corps = json.loads(self.rfile.read(taille).decode("utf-8"))
+                except Exception:
+                    corps = {}
+            qui = corps.get("personne", "?")
+            quoi = corps.get("type", "?")
+            log(f"⚡ [SERVEUR] Événement reçu — {qui} : {quoi}")
+
+            lecture_ok, detail = True, ""
+            try:
+                req = urllib.request.Request(
+                    f"http://localhost:{PORT_LOCALISATION}/actualiser",
+                    data=b"{}", method="POST",
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    detail = r.read(300).decode("utf-8", "replace")
+            except Exception as e:
+                lecture_ok, detail = False, str(e)
+                log(f"⚡ [SERVEUR] Lecture forcée impossible : {e}")
+
+            threading.Thread(target=lambda: _tick_proximite("evenement"),
+                             daemon=True).start()
+            self.send_json({"ok": True, "lecture_forcee": lecture_ok,
+                            "detail": detail[:200], "personne": qui, "type": quoi})
+
+        elif chemin == "/reactivite":
+            self.send_json({"ok": True, "reactivite": _charger_reactivite()})
 
         elif chemin == "/toggle":
             length = int(self.headers.get("Content-Length", 0))
