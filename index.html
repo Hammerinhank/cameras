@@ -582,6 +582,26 @@
   }
   #page-investigation textarea:focus { outline: none; border-color: #60a5fa; }
 
+  /* ── Section Réactivité (onglet Paramétrage) ── */
+  #section-reactivite { margin-top: 18px; }
+  #section-reactivite .react-ligne {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid #1c1f26;
+  }
+  #section-reactivite .react-ligne input[type=checkbox] {
+    width: 17px; height: 17px; margin-top: 2px; flex: 0 0 auto; accent-color: #60a5fa;
+  }
+  #section-reactivite .react-ligne strong { font-size: 13px; display: block; }
+  #section-reactivite .react-ligne small {
+    display: block; color: #8b9198; font-size: 11.5px; line-height: 1.45; margin-top: 3px;
+  }
+  #section-reactivite .react-nombre {
+    width: 72px; flex: 0 0 auto; text-align: right;
+    background: #0e0f11; border: 1px solid #2a2d33; border-radius: 7px;
+    color: #e8eaf0; padding: 6px 8px; font-family: 'DM Mono', monospace; font-size: 13px;
+  }
+  #section-reactivite code { color: #7dd3fc; font-family: 'DM Mono', monospace; }
+
 </style>
 
 <!-- ══════════════════════════════════════════
@@ -1854,8 +1874,16 @@ window.addEventListener('unhandledrejection', function (e) {
 })();
 
 /* ── 1. Version de l'application ───────────────────────────── */
-window.APP_VERSION = '2.7.1';
+window.APP_VERSION = '2.8.0';
 window.APP_HISTORIQUE = [
+  {
+    v: '2.8.0', date: '10/09/2026',
+    resume: "Section « Réactivité » dans l'onglet Paramétrage : choix du mode " +
+            "périodique et/ou événementiel, temporisation avant allumage au " +
+            "départ, notification Telegram à chaque bascule. Décocher le dernier " +
+            "mode actif est refusé, côté page comme côté serveur. Les valeurs par " +
+            "défaut reproduisent exactement le comportement antérieur."
+  },
   {
     v: '2.7.1', date: '09/09/2026',
     resume: "Correction d'un faux positif : « laMaison est mal située » se déclenchait " +
@@ -2964,6 +2992,163 @@ window.relancerPreflight = async function () {
   await preflight();   // reconstruit le panneau lui-même
 };
 
+/* ══════════════════════════════════════════════════════════════
+   RÉGLAGES DE RÉACTIVITÉ  (v2.8.0)
+   Deux modes de déclenchement, cumulables, dont au moins un doit rester
+   actif. Les deux options (temporisation, notification) sont séparées :
+   « périodique seul, options désactivées » doit reproduire à l'identique
+   le comportement d'avant cette version.
+   ══════════════════════════════════════════════════════════════ */
+var REACT_DEFAUT = { mode_periodique: true, mode_evenementiel: false,
+                     temporisation_depart_min: 0, notifier_telegram: false };
+
+function elReact(id) { return document.getElementById(id); }
+
+function retourReact(classe, msg) {
+  var el = elReact('react-feedback');
+  if (!el) return;
+  var c = { ok: '#22c55e', err: '#ef4444', info: '#60a5fa', warn: '#f59e0b' };
+  el.style.color = c[classe] || '#8b9198';
+  el.textContent = msg;
+}
+
+window.chargerReactivite = async function () {
+  var zone = elReact('react-contenu');
+  if (!zone) return;
+  var r = REACT_DEFAUT;
+  try {
+    var opts = {}; var sig = signalTimeout(6000); if (sig) opts.signal = sig;
+    var rep = await fetchNatif(BASE + '/loc/reactivite', opts);
+    if (rep.status === 404) {
+      zone.innerHTML = '<div class="inst-detail" style="color:#f59e0b">⚠️ Route /reactivite absente : ' +
+        'localisation.py est antérieur à la v1.2.0.</div>';
+      return;
+    }
+    if (rep.ok) {
+      var d = await rep.json();
+      if (d && d.reactivite) r = d.reactivite;
+    }
+    LOG('REGLAGES', 'réactivité lue : ' + JSON.stringify(r));
+  } catch (e) {
+    LOG('REGLAGES', 'lecture impossible : ' + e.message);
+    zone.innerHTML = '<div class="inst-detail" style="color:#ef4444">❌ ' + echapper(e.message) + '</div>';
+    return;
+  }
+  rendreReactivite(r);
+};
+
+function rendreReactivite(r) {
+  var zone = elReact('react-contenu');
+  if (!zone) return;
+  zone.innerHTML =
+    '<label class="react-ligne"><input type="checkbox" id="r-periodique"' +
+      (r.mode_periodique ? ' checked' : '') + ' onchange="verifierModes(this)">' +
+      '<span><strong>Mode périodique</strong>' +
+      '<small>Lecture GPS à intervalle régulier, puis décision au cycle suivant. ' +
+      'Fonctionnement historique — délai pouvant atteindre une heure et demie.</small></span></label>' +
+
+    '<label class="react-ligne"><input type="checkbox" id="r-evenementiel"' +
+      (r.mode_evenementiel ? ' checked' : '') + ' onchange="verifierModes(this)">' +
+      '<span><strong>Mode événementiel</strong>' +
+      '<small>Le Raccourci iOS prévient le serveur dès qu\'il franchit la zone du ' +
+      'domicile : lecture et décision immédiates, en quelques secondes.</small></span></label>' +
+
+    '<div class="react-ligne"><span style="flex:1"><strong>Temporisation au départ</strong>' +
+      '<small>Attendre avant d\'allumer, et revérifier : évite que les caméras se ' +
+      'déclenchent pour une sortie de dix minutes. 0 = allumage immédiat. ' +
+      'Le retour reste toujours immédiat.</small></span>' +
+      '<input class="react-nombre" id="r-tempo" type="number" min="0" max="120" step="1" value="' +
+      echapper(r.temporisation_depart_min) + '"><span class="inst-note">min</span></div>' +
+
+    '<label class="react-ligne"><input type="checkbox" id="r-telegram"' +
+      (r.notifier_telegram ? ' checked' : '') + '>' +
+      '<span><strong>Notification Telegram à chaque bascule</strong>' +
+      '<small>« Caméras allumées, logement vide » ou « Bienvenue, caméras éteintes ». ' +
+      'Leur régularité rend une panne visible par leur absence.</small></span></label>' +
+
+    '<div class="inst-actions">' +
+      '<button class="inst-btn vert" onclick="enregistrerReactivite()">💾 Enregistrer</button>' +
+      '<button class="inst-btn" onclick="chargerReactivite()">↺ Recharger</button>' +
+      '<button class="inst-btn" onclick="testerEvenement()">⚡ Tester le mode événementiel</button>' +
+    '</div>' +
+    '<div class="inst-feedback" id="react-feedback"></div>' +
+    '<div class="inst-detail" id="react-url"></div>';
+  majURLEvenement();
+}
+
+/* Invariant : on ne peut pas décocher le dernier mode actif. */
+window.verifierModes = function (source) {
+  var p = elReact('r-periodique'), e = elReact('r-evenementiel');
+  if (!p || !e) return;
+  if (!p.checked && !e.checked) {
+    source.checked = true;
+    retourReact('warn', '⚠️ Au moins un des deux modes doit rester actif.');
+  } else {
+    retourReact('', '');
+  }
+  majURLEvenement();
+};
+
+function majURLEvenement() {
+  var el = elReact('react-url');
+  var e = elReact('r-evenementiel');
+  if (!el) return;
+  el.innerHTML = (e && e.checked)
+    ? 'À appeler depuis le Raccourci iOS, en POST : <code>' + echapper(BASE) + '/evenement</code>'
+    : '';
+}
+
+window.enregistrerReactivite = async function () {
+  var p = elReact('r-periodique'), e = elReact('r-evenementiel');
+  if (!p || !e) return;
+  if (!p.checked && !e.checked) {
+    retourReact('err', '❌ Au moins un des deux modes doit rester actif.');
+    return;
+  }
+  var charge = {
+    mode_periodique: p.checked,
+    mode_evenementiel: e.checked,
+    temporisation_depart_min: nombreValide((elReact('r-tempo') || {}).value, 0),
+    notifier_telegram: !!(elReact('r-telegram') || {}).checked
+  };
+  retourReact('info', '⏳ Enregistrement…');
+  try {
+    var r = await window.fetch(BASE + '/loc/reactivite', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reactivite: charge }) });
+    var d = null;
+    try { d = await r.json(); } catch (x) {}
+    if (!r.ok) throw new Error((d && d.erreur) || ('HTTP ' + r.status));
+    LOG('REGLAGES', 'réactivité enregistrée : ' + JSON.stringify(d.reactivite));
+    rendreReactivite(d.reactivite);
+    retourReact('ok', '✅ Réglages enregistrés');
+  } catch (ex) {
+    retourReact('err', '❌ ' + ex.message);
+  }
+};
+
+window.testerEvenement = async function () {
+  retourReact('info', '⏳ Appel de /evenement…');
+  try {
+    var r = await window.fetch(BASE + '/evenement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personne: 'test depuis le dashboard', type: 'test' }) });
+    var d = null;
+    try { d = await r.json(); } catch (x) {}
+    if (r.status === 409) {
+      retourReact('warn', '⚠️ Le serveur refuse : mode événementiel désactivé. Enregistrez-le d\'abord.');
+      return;
+    }
+    if (!r.ok) throw new Error((d && d.erreur) || ('HTTP ' + r.status));
+    retourReact(d && d.lecture_forcee ? 'ok' : 'warn',
+      (d && d.lecture_forcee)
+        ? '✅ Lecture GPS forcée et décision relancée — voir le journal du serveur'
+        : '⚠️ Décision relancée, mais la lecture forcée a échoué : ' + ((d && d.detail) || '?'));
+  } catch (ex) {
+    retourReact('err', '❌ ' + ex.message);
+  }
+};
+
 /* ── 13. Modal historique des versions ─────────────────────── */
 window.ouvrirVersions = function () {
   var ov = document.getElementById('modal-version-overlay');
@@ -3052,6 +3237,11 @@ function greffonNavigation() {
       });
       var r = orig.apply(this, arguments);
       LOG('NAV', 'showPage d\'origine exécuté pour « ' + nom + ' »');
+      if (nom === 'parametrage') {
+        try { window.chargerReactivite(); } catch (e) {
+          LOG('ERREUR', 'chargerReactivite : ' + e.message);
+        }
+      }
       return r;
     } catch (e) {
       LOG('ERREUR', 'showPage("' + nom + '") a levé : ' + e.message,
@@ -7043,6 +7233,14 @@ async function checkStateChanges(newState) {
   <div class="param-header">
     <div class="eyebrow">Domotique — Configuration</div>
     <h1>Para<span>métrage</span></h1>
+  </div>
+
+  <!-- Section : Réactivité (v2.8.0) — remplie par le module de supervision -->
+  <div class="param-section" id="section-reactivite">
+    <div class="param-section-title">⚡ Réactivité — quand la décision est prise</div>
+    <div id="react-contenu">
+      <div class="inst-detail">Chargement…</div>
+    </div>
   </div>
 
   <!-- Section : laMaison -->
