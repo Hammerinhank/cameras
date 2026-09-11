@@ -18,8 +18,17 @@ FICHIER_PARAM = "localisationParam.json"
 #  démarrage, et renvoyée dans /distances et /preferences pour que
 #  le dashboard puisse vérifier à quelle version il parle.
 # ═══════════════════════════════════════════════════════════════
-VERSION_LOCALISATION = "1.1.0"
+VERSION_LOCALISATION = "1.2.0"
 HISTORIQUE_VERSIONS = [
+    ("1.2.0", "10/09/2026",
+     "Reglages de reactivite : bloc « reactivite » dans localisationParam.json "
+     "(mode_periodique, mode_evenementiel, temporisation_depart_min, "
+     "notifier_telegram) et route /reactivite en lecture et ecriture. Au moins "
+     "un mode doit rester actif : la regle est appliquee ici aussi, pour qu'un "
+     "fichier modifie a la main ne puisse pas tout desactiver. Quand le mode "
+     "periodique est desactive, la boucle n'attend plus de delai et ne lit que "
+     "sur demande explicite (/actualiser). Avec les valeurs par defaut, le "
+     "comportement est strictement identique a la v1.1.0."),
     ("1.1.0", "09/09/2026",
      "Les onze routes étaient comparées à self.path, chaîne de requête "
      "comprise : un appel /distances?t=123 tombait dans le 404 muet. La "
@@ -198,6 +207,41 @@ DISTANCES_DEFAUT = {
 }
 
 
+# ── Reglages de reactivite ───────────────────────────────────────
+# Valeurs par defaut = comportement historique a l'identique :
+# lecture periodique seule, sans temporisation ni notification.
+REACTIVITE_DEFAUT = {
+    "mode_periodique":          True,
+    "mode_evenementiel":        False,
+    "temporisation_depart_min": 0,
+    "notifier_telegram":        False,
+}
+
+
+def normaliser_reactivite(brut):
+    """Complete les cles manquantes et garantit l'invariant : au moins un des
+    deux modes actif. Un fichier corrompu ou modifie a la main ne doit pas
+    pouvoir desactiver toute la chaine."""
+    r = dict(REACTIVITE_DEFAUT)
+    if isinstance(brut, dict):
+        for cle in ("mode_periodique", "mode_evenementiel", "notifier_telegram"):
+            if cle in brut:
+                r[cle] = bool(brut[cle])
+        try:
+            v = float(brut.get("temporisation_depart_min",
+                               REACTIVITE_DEFAUT["temporisation_depart_min"]))
+            r["temporisation_depart_min"] = max(0, min(120, v))
+        except (TypeError, ValueError):
+            pass
+    if not r["mode_periodique"] and not r["mode_evenementiel"]:
+        r["mode_periodique"] = True
+    return r
+
+
+def charger_reactivite():
+    return normaliser_reactivite(charger_parametres().get("reactivite"))
+
+
 def charger_parametres():
     """
     Charge les paramètres depuis FICHIER_PARAM.
@@ -224,6 +268,9 @@ def charger_parametres():
             parametres = {}
 
         modifie = False
+        if "reactivite" not in parametres or not isinstance(parametres["reactivite"], dict):
+            parametres["reactivite"] = dict(REACTIVITE_DEFAUT)
+            modifie = True
         if "period" not in parametres:
             parametres["period"] = PERIOD_DEFAUT_MIN
             modifie = True
@@ -399,6 +446,14 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         que le processus était absent."""
         chemin = self.path.split("?")[0]
 
+        if chemin == "/reactivite":
+            self.renvoyer_json(json.dumps({
+                "ok": True,
+                "reactivite": charger_reactivite(),
+                "version_localisation": VERSION_LOCALISATION,
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         if chemin == "/version":
             self.renvoyer_json(json.dumps({
                 "version": VERSION_LOCALISATION,
@@ -485,6 +540,34 @@ class Gestionnaire(SimpleHTTPRequestHandler):
 
     def _post_interne(self):
         chemin = self.path.split("?")[0]
+
+        if chemin == "/reactivite":
+            taille = int(self.headers.get("Content-Length", 0))
+            brut = json.loads(self.rfile.read(taille).decode("utf-8")) if taille else {}
+            demande = brut.get("reactivite", brut)
+            # Refus explicite plutot que correction silencieuse : l'appelant
+            # doit savoir que sa demande etait invalide.
+            if isinstance(demande, dict) \
+               and not demande.get("mode_periodique", False) \
+               and not demande.get("mode_evenementiel", False):
+                self.renvoyer_json(json.dumps({
+                    "ok": False,
+                    "erreur": "au moins un des deux modes doit rester actif",
+                }, ensure_ascii=False).encode("utf-8"), 400)
+                return
+            with _PARAM_LOCK:
+                p = charger_parametres()
+                p["reactivite"] = normaliser_reactivite(demande)
+                _ecrire_json_atomique(FICHIER_PARAM, p)
+                # Pas de mise a jour de PARAMETRES ici : charger_reactivite()
+                # relit le fichier, et la fonction declare « global PARAMETRES »
+                # plus bas (une utilisation anterieure serait une erreur).
+            print(f"[Reglages] reactivite = {p['reactivite']}")
+            self.renvoyer_json(json.dumps({
+                "ok": True, "reactivite": p["reactivite"],
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         if chemin == "/nettoyer":
             seuil = int(charger_distances().get("nettoyage_seuil_m", 500))
             nb_avant, nb_apres = nettoyer_historique(seuil_m=seuil)
@@ -673,6 +756,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             "uptime_lisible": f"{uptime // 3600} h {(uptime % 3600) // 60} min {uptime % 60} s",
             "dossier": dossier,
             "periode_min": PARAMETRES.get("period", PERIOD_DEFAUT_MIN),
+            "reactivite": charger_reactivite(),
             "urls_coordonnees": lire_urls_coordonnees(),
             "distances": charger_distances(),
             "releves": nb_releves,
@@ -932,6 +1016,11 @@ if __name__ == "__main__":
             # Signale au handler /actualiser (s'il attend) que la lecture est terminée.
             evenement_lecture_terminee.set()
 
+        # [v1.2.0] Mode periodique desactive : on n'attend plus de delai, la
+        # boucle ne repart que sur demande explicite (/actualiser, appele par
+        # le Raccourci iOS a chaque franchissement de zone). Le mode par
+        # defaut etant actif, le comportement historique est inchange.
+        _react = charger_reactivite()
         periode_minutes = PARAMETRES.get("period", PERIOD_DEFAUT_MIN)
         # [MODIFIÉ] On remplace time.sleep() par un Event.wait() interruptible :
         # - si personne ne déclenche de lecture forcée, on attend simplement
@@ -941,7 +1030,10 @@ if __name__ == "__main__":
         #   lecture, puis recompte un cycle complet de `periode_minutes`
         #   minutes : le délai est donc bien réinitialisé.
         evenement_lecture_demandee.clear()
-        reveil_force = evenement_lecture_demandee.wait(timeout=periode_minutes * 60)
+        _attente = (periode_minutes * 60) if _react["mode_periodique"] else None
+        if _attente is None:
+            print("[Cycle] Mode periodique desactive — attente d'une demande explicite.")
+        reveil_force = evenement_lecture_demandee.wait(timeout=_attente)
         if reveil_force:
             print("[Cycle] Lecture forcée demandée depuis le dashboard — délai réinitialisé.")
 
